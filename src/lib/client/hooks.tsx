@@ -1,7 +1,8 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiClientError, errorMessage } from "./api";
-import { kvGet, kvSet } from "./offline-queue";
+import { clearCachedData, kvGet, kvSet } from "./offline-queue";
 
 export interface SessionUser {
   id: string;
@@ -112,6 +113,7 @@ const Ctx = createContext<AppCtx | null>(null);
 const FARM_KEY = "agrisense.selectedFarm";
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [farms, setFarms] = useState<FarmLite[]>([]);
   const [farmId, setFarmIdState] = useState<string | null>(null);
@@ -163,13 +165,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [refreshUser, refreshFarms]);
 
   useEffect(() => {
-    const onUnauthorized = () => {
+    const onUnauthorized = (event: Event) => {
       setUser(null);
       setFarms([]);
+      // Never leave one user's cached farm data visible after the session dies.
+      void clearCachedData();
+      const detail = (event as CustomEvent<{ next?: string; silent?: boolean }>).detail;
+      if (detail?.silent) return;
+      router.replace(`/auth/login?next=${encodeURIComponent(detail?.next ?? "/dashboard")}`);
     };
     window.addEventListener("agrisense:unauthorized", onUnauthorized);
     return () => window.removeEventListener("agrisense:unauthorized", onUnauthorized);
-  }, []);
+  }, [router]);
 
   const setFarmId = useCallback((id: string) => {
     localStorage.setItem(FARM_KEY, id);

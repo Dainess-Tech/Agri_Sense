@@ -7,7 +7,7 @@ import { getFarmForUser } from "@/server/access";
 import { ApiError, handle, json, notFound, pageParams, parseBody } from "@/server/http";
 import { evaluateFarm } from "@/server/services/intelligence";
 import { latestReadings, readingSeries } from "@/server/services/sensors";
-import { getSoil, SOIL_PROVIDER } from "@/server/services/soil";
+import { getSoil, soilIsStale, SOIL_PROVIDER } from "@/server/services/soil";
 import { getForecast, getHistory } from "@/server/services/weather";
 import { addDays } from "@/modules/shared/units";
 import { SENSOR_CODES } from "@/modules/iot/validation";
@@ -40,7 +40,7 @@ export const GET = handle(async (req: Request, ctx: Ctx) => {
     case "soil": {
       try {
         const soil = await getSoil(lat, lng);
-        return json({ soil, provider: SOIL_PROVIDER, dataType: "modelled", license: "CC BY 4.0" });
+        return json({ soil, provider: SOIL_PROVIDER, dataType: "modelled", license: "CC BY 4.0", stale: soilIsStale(soil) });
       } catch (e) {
         throw new ApiError(503, `Soil data provider unavailable: ${(e as Error).message}`, undefined, "provider_unavailable");
       }

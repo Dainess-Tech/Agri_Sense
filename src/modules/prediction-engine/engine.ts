@@ -18,6 +18,7 @@ import { addDays, daysBetween, round, toHectares } from "../shared/units";
 import {
   evaluateRisks,
   growthProgress,
+  type RiskThresholds,
   type DailyWeather,
   type EngineRisk,
   type SensorSummary,
@@ -60,6 +61,8 @@ export interface PredictionInput {
   weather: DailyWeather[] | null;
   soil: SoilSummary | null;
   sensors: SensorSummary | null;
+  /** Optional runtime overrides for risk rule thresholds (from system_settings). */
+  thresholds?: RiskThresholds;
 }
 
 export interface Factor {
@@ -69,6 +72,18 @@ export interface Factor {
   impact: "positive" | "neutral" | "negative";
   explanation: string;
   dataType: "measured" | "modelled" | "forecast" | "calculated" | "assumed";
+}
+
+export interface Suitability {
+  verdict: "suitable" | "marginal" | "unsuitable" | "unknown";
+  score: number; // 0–100
+  explanation: string;
+}
+
+export interface Advisory {
+  category: "planting" | "water" | "soil" | "temperature" | "management";
+  title: string;
+  body: string;
 }
 
 export interface PredictionResult {
@@ -87,6 +102,8 @@ export interface PredictionResult {
   dataQuality: { score: number; components: { name: string; available: boolean; weight: number; note: string }[] };
   factors: Factor[];
   risks: EngineRisk[];
+  suitability: Suitability;
+  advisories: Advisory[];
   conditions: {
     rainSincePlantingMm: number | null;
     forecastRainMm: number | null;
@@ -106,6 +123,7 @@ export class PredictionValidationError extends Error {}
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const impactOf = (m: number): Factor["impact"] => (m > 1.001 ? "positive" : m < 0.98 ? "negative" : "neutral");
+const severityRankLocal = (s: EngineRisk["severity"]) => ({ info: 0, low: 1, medium: 2, high: 3, critical: 4 })[s];
 
 export function validateInput(input: PredictionInput): void {
   const c = input.crop;
@@ -313,7 +331,7 @@ export function predictYield(input: PredictionInput): PredictionResult {
     daily: input.weather ?? [],
     sensors: reliableSensors,
     soil: input.soil,
-  });
+  }, input.thresholds);
   if (waterRatio !== null && waterRatio < 0.6 && !risks.some((r) => r.category === "drought")) {
     risks.push({
       category: "drought",
@@ -326,6 +344,80 @@ export function predictYield(input: PredictionInput): PredictionResult {
 
   limitations.push("Forecast values are model predictions and may change; they are not observations.");
   limitations.push("Rule-based v1 estimate: not yet calibrated against local harvest records. Pests, diseases and management practices are not modelled.");
+
+  // ---------- Environmental suitability (proposal §3.1) ----------
+  // Score starts from the agronomic limiting factors, then penalises active
+  // risks by severity. Unknown conditions are reported rather than guessed.
+  const severityPenalty: Record<EngineRisk["severity"], number> = { info: 0, low: 4, medium: 10, high: 20, critical: 30 };
+  const riskPenalty = risks.reduce((a, r) => a + severityPenalty[r.severity], 0);
+  const hasEnvironment = (input.weather?.length ?? 0) > 0 || input.soil !== null || reliableSensors !== null;
+  const suitabilityScore = hasEnvironment
+    ? round(clamp(combined * 100 - riskPenalty, 0, 100), 0)
+    : 0;
+  const verdict: Suitability["verdict"] = !hasEnvironment
+    ? "unknown"
+    : suitabilityScore >= 70
+      ? "suitable"
+      : suitabilityScore >= 45
+        ? "marginal"
+        : "unsuitable";
+  const worst = risks.reduce<EngineRisk | null>((a, r) => (a === null || severityRankLocal(r.severity) > severityRankLocal(a.severity) ? r : a), null);
+  const suitability: Suitability = {
+    verdict,
+    score: suitabilityScore,
+    explanation: !hasEnvironment
+      ? "Environmental data (weather, soil or sensors) was unavailable, so suitability could not be assessed."
+      : verdict === "suitable"
+        ? `Conditions are largely within the suitable range for ${crop.name}. ${worst ? `Watch: ${worst.title.toLowerCase()}.` : "No significant environmental risks detected."}`
+        : verdict === "marginal"
+          ? `Some conditions are outside the ideal range for ${crop.name}${worst ? ` — ${worst.title.toLowerCase()}` : ""}. Review the listed risks before major field decisions.`
+          : `Several conditions are unfavourable for ${crop.name}${worst ? ` — ${worst.title.toLowerCase()}` : ""}. Consider reviewing crop choice, planting date or management with an agronomist.`,
+  };
+
+  // ---------- Proactive advisories (proposal §3.1 & §3.3) ----------
+  const advisories: Advisory[] = [];
+  if (progress < 0.2 && rainForecast !== null && rainForecast < crop.waterNeedMinMm * 0.1) {
+    advisories.push({
+      category: "planting",
+      title: "Check planting conditions",
+      body: `Forecast rainfall (${round(rainForecast, 0)} mm) is low for establishment of ${crop.name}. If planting has not yet happened, consider waiting for a reliable rainfall window or confirm irrigation is available. Confirm locally before deciding.`,
+    });
+  }
+  if (waterRatio !== null && waterRatio < 0.85) {
+    advisories.push({
+      category: "water",
+      title: "Plan water management",
+      body: `Rainfall so far plus the forecast covers about ${round(waterRatio * 100, 0)}% of the estimated ${crop.name} water requirement. Monitor soil moisture and discuss irrigation scheduling with your extension officer.`,
+    });
+  }
+  if (soilPh !== null && (soilPh < crop.phMin || soilPh > crop.phMax)) {
+    advisories.push({
+      category: "soil",
+      title: "Confirm soil pH with a laboratory test",
+      body: `${soilPhSource === "measured" ? "Measured" : "Modelled"} pH ${round(soilPh, 2)} is outside the ${crop.name} range of ${crop.phMin}–${crop.phMax}. Do not apply lime or amendments without a confirmatory soil test.`,
+    });
+  }
+  if (hotDays >= 2 || coldDays >= 2) {
+    advisories.push({
+      category: "temperature",
+      title: "Prepare for temperature extremes",
+      body: `${hotDays} hot and ${coldDays} cold day(s) were detected in the weather window. Monitor sensitive growth stages (flowering and grain fill) and adjust field activities accordingly.`,
+    });
+  }
+  if ((progress >= 0.4 && progress <= 0.7) || progress > 0.7) {
+    advisories.push({
+      category: "management",
+      title: "Review crop management before harvest",
+      body: `The crop is at an advanced growth stage. Plan harvesting, storage and market arrangements around the estimated window ${harvestStart} to ${harvestEnd}, and avoid late applications that could affect produce quality.`,
+    });
+  }
+  if (advisories.length === 0 && hasEnvironment) {
+    advisories.push({
+      category: "management",
+      title: "Continue routine monitoring",
+      body: `Current conditions are within the expected range for ${crop.name}. Keep recording sensor readings and update the planting status so AgriSense can refine future estimates.`,
+    });
+  }
 
   return {
     version: ENGINE_VERSION,
@@ -343,6 +435,8 @@ export function predictYield(input: PredictionInput): PredictionResult {
     dataQuality: { score, components },
     factors,
     risks,
+    suitability,
+    advisories,
     conditions: {
       rainSincePlantingMm: observed.length ? round(rainObserved, 1) : null,
       forecastRainMm: forecast.length ? round(rainForecast, 1) : null,

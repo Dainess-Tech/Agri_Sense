@@ -4,6 +4,7 @@
  * environment, prediction, recommendations, notifications, administration.
  * All timestamps are stored as timestamptz (UTC). Measurements carry explicit units.
  */
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -88,7 +89,7 @@ export const authTokens = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("auth_tokens_hash_uq").on(t.tokenHash)],
+  (t) => [uniqueIndex("auth_tokens_hash_uq").on(t.tokenHash), index("auth_tokens_user_idx").on(t.userId), index("auth_tokens_expiry_idx").on(t.expiresAt)],
 );
 
 export const notificationPreferences = pgTable("notification_preferences", {
@@ -143,7 +144,7 @@ export const farmMembers = pgTable(
     role: varchar("role", { length: 24 }).notNull().default("viewer"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.farmId, t.userId] })],
+  (t) => [primaryKey({ columns: [t.farmId, t.userId] }), index("farm_members_user_idx").on(t.userId)],
 );
 
 // ---------- Crop management ----------
@@ -190,7 +191,7 @@ export const cropVarieties = pgTable(
     yieldFactor: numeric("yield_factor", { precision: 4, scale: 2 }).notNull().default("1.00"),
     notes: text("notes"),
   },
-  (t) => [index("crop_varieties_crop_idx").on(t.cropId)],
+  (t) => [index("crop_varieties_crop_idx").on(t.cropId), uniqueIndex("crop_varieties_name_uq").on(t.cropId, t.name)],
 );
 
 export const plantings = pgTable(
@@ -221,6 +222,8 @@ export const plantings = pgTable(
   },
   (t) => [
     index("plantings_farm_idx").on(t.farmId),
+    index("plantings_farm_date_idx").on(t.farmId, t.plantingDate),
+    index("plantings_status_idx").on(t.status),
     index("plantings_crop_idx").on(t.cropId),
     uniqueIndex("plantings_client_uq").on(t.farmId, t.clientId),
   ],
@@ -263,7 +266,11 @@ export const iotDevices = pgTable(
     offlineNotifiedAt: timestamp("offline_notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("iot_devices_uid_uq").on(t.deviceUid), index("iot_devices_farm_idx").on(t.farmId)],
+  (t) => [
+    uniqueIndex("iot_devices_uid_uq").on(t.deviceUid),
+    index("iot_devices_farm_idx").on(t.farmId),
+    index("iot_devices_status_idx").on(t.farmId, t.active, t.lastSeenAt),
+  ],
 );
 
 /** Reference table of supported sensor types with units and plausible ranges. */
@@ -298,6 +305,7 @@ export const sensorReadings = pgTable(
     uniqueIndex("sensor_readings_idem_uq").on(t.deviceId, t.messageId, t.sensorType),
     index("sensor_readings_device_time_idx").on(t.deviceId, t.measuredAt),
     index("sensor_readings_farm_type_time_idx").on(t.farmId, t.sensorType, t.measuredAt),
+    index("sensor_readings_received_idx").on(t.receivedAt),
   ],
 );
 
@@ -329,7 +337,7 @@ export const weatherSnapshots = pgTable(
     retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
-  (t) => [uniqueIndex("weather_snapshots_key_uq").on(t.cacheKey)],
+  (t) => [uniqueIndex("weather_snapshots_key_uq").on(t.cacheKey), index("weather_snapshots_expiry_idx").on(t.expiresAt)],
 );
 
 export const soilProfiles = pgTable(
@@ -352,7 +360,7 @@ export const soilProfiles = pgTable(
     retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
-  (t) => [uniqueIndex("soil_profiles_key_uq").on(t.cacheKey)],
+  (t) => [uniqueIndex("soil_profiles_key_uq").on(t.cacheKey), index("soil_profiles_expiry_idx").on(t.expiresAt)],
 );
 
 // ---------- Prediction ----------
@@ -389,6 +397,10 @@ export const predictions = pgTable(
       .references(() => predictionVersions.version),
     conditionsSummary: jsonb("conditions_summary").notNull(),
     factors: jsonb("factors").notNull(),
+    /** Environmental suitability verdict and 0–100 score (proposal §3.1). */
+    suitability: jsonb("suitability").$type<{ verdict: string; score: number; explanation: string }>(),
+    /** Proactive planting, water, soil and management advice (proposal §3.3). */
+    advisories: jsonb("advisories").$type<{ category: string; title: string; body: string }[]>(),
     limitations: jsonb("limitations").$type<string[]>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -439,7 +451,13 @@ export const farmRisks = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
-  (t) => [index("farm_risks_farm_idx").on(t.farmId, t.active), index("farm_risks_dedupe_idx").on(t.dedupeKey)],
+  (t) => [
+    index("farm_risks_farm_idx").on(t.farmId, t.active),
+    index("farm_risks_dedupe_idx").on(t.dedupeKey),
+    // A crash between read and insert must not create two active copies of the same risk.
+    uniqueIndex("farm_risks_active_dedupe_uq").on(t.dedupeKey).where(sql`${t.active} = true`),
+    index("farm_risks_planting_idx").on(t.plantingId, t.category),
+  ],
 );
 
 export const recommendationRules = pgTable("recommendation_rules", {
@@ -470,7 +488,7 @@ export const recommendations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("recommendations_farm_idx").on(t.farmId, t.status)],
+  (t) => [index("recommendations_farm_idx").on(t.farmId, t.status), index("recommendations_risk_idx").on(t.riskId)],
 );
 
 // ---------- Notifications ----------
@@ -491,7 +509,11 @@ export const notifications = pgTable(
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("notifications_user_idx").on(t.userId, t.createdAt), index("notifications_dedupe_idx").on(t.dedupeKey)],
+  (t) => [
+    index("notifications_user_idx").on(t.userId, t.createdAt),
+    index("notifications_dedupe_idx").on(t.dedupeKey),
+    index("notifications_user_dedupe_idx").on(t.userId, t.dedupeKey, t.createdAt),
+  ],
 );
 
 export const pushSubscriptions = pgTable(
@@ -506,7 +528,7 @@ export const pushSubscriptions = pgTable(
     auth: text("auth").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("push_subscriptions_endpoint_uq").on(t.endpoint)],
+  (t) => [uniqueIndex("push_subscriptions_endpoint_uq").on(t.endpoint), index("push_subscriptions_user_idx").on(t.userId)],
 );
 
 // ---------- Administration ----------
@@ -521,7 +543,11 @@ export const auditLogs = pgTable(
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("audit_logs_created_idx").on(t.createdAt)],
+  (t) => [
+    index("audit_logs_created_idx").on(t.createdAt),
+    index("audit_logs_actor_idx").on(t.actorId),
+    index("audit_logs_entity_idx").on(t.entity, t.entityId),
+  ],
 );
 
 export const systemSettings = pgTable("system_settings", {

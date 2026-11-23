@@ -40,8 +40,12 @@ Status codes: 200 OK · 201 Created · 204 No Content · 400 Bad request · 401 
 | GET | `/farms/{id}` | `{ farm, canEdit }` |
 | PATCH | `/farms/{id}` | partial fields + **`version` (required)** + `archived?`; 409 `{ details.current }` if stale |
 | DELETE | `/farms/{id}` | owner/admin; 204 |
+| GET | `/farms/{id}/members` | owner + memberships (`{ owner, members[] }`); owner/admin only |
+| POST | `/farms/{id}/members` | `{ email, role: viewer\|manager }` → 201; owner/admin only; upserts membership |
+| PATCH | `/farms/{id}/members` | `{ userId, role }`; owner/admin only |
+| DELETE | `/farms/{id}/members?userId=` | revoke shared access; owner/admin only |
 | GET | `/farms/{id}/weather` | Open-Meteo: `current`, `daily[]` (14 past days `kind:"model"`, 16 forecast days `kind:"forecast"`), `provider`, `retrievedAt`, `cached`, `stale`; `?historyDays=N` (≤365) → ERA5 archive; 503 if provider down & no cache |
-| GET | `/farms/{id}/soil` | SoilGrids (modelled, 0–15 cm): pH, organic carbon g/kg, nitrogen g/kg, sand/silt/clay %, texture, `available` |
+| GET | `/farms/{id}/soil` | SoilGrids (modelled, 0–15 cm): pH, organic carbon g/kg, nitrogen g/kg, sand/silt/clay %, texture, `available`, `stale` (true when served from expired cache because the provider was unreachable) |
 | GET | `/farms/{id}/risks?history=1&refresh=1` | active (or all) risks; `refresh=1` forces evaluation |
 | GET | `/farms/{id}/recommendations?status=new\|read\|completed` | |
 | GET/POST | `/farms/{id}/activities` | POST `{ type, description, plantingId?, occurredAt? }`; GET paginated |
@@ -73,7 +77,7 @@ Headers: `X-Device-Id: as-1234abcd`, `Authorization: Bearer ask_…`
                 { "type": "air_humidity", "value": 61 }, { "type": "soil_temperature", "value": 20.1 },
                 { "type": "soil_ph", "value": 6.3 } ] }
 ```
-or `{ "messages": [ …up to 200… ] }`. Sensor types/units: `soil_moisture` %VWC · `air_temperature` °C · `air_humidity` %RH · `soil_temperature` °C · `soil_ph` pH.
+or `{ "messages": [ …up to 200… ] }`. Sensor types/units: `soil_moisture` %VWC · `air_temperature` °C · `air_humidity` %RH · `soil_temperature` °C · `soil_ph` pH · `soil_n` / `soil_p` / `soil_k` mg/kg (optional NPK probes; 0 and full-scale values are flagged as suspect).
 `measuredAt`: epoch seconds/ms or ISO; missing/unsynced (<2020) → server time (noted); >5 min in future → rejected.
 Response 201/200: `{ accepted, duplicates, flagged, rejected:[{messageId,type,reason}], intervalSec, serverTime }`. 401 bad credentials · 403 deactivated · 429 >120 req/min.
 
@@ -81,7 +85,9 @@ Response 201/200: `{ accepted, duplicates, flagged, rejected:[{messageId,type,re
 | GET | `/predictions?farmId=` | history |
 |---|---|---|
 | POST | `/predictions` | `{ plantingId }` → 201 `{ prediction }`; 503 `data_unavailable` if weather can't be retrieved; 422 invalid inputs; 20/hour/user |
-| GET | `/predictions/{id}` | `{ prediction (yieldMin/Max, yieldUnit, totalMin/Max, harvestStart/End, dataQualityScore, conditionsSummary, factors[], limitations[], methodVersion), risks[], inputs{snapshot,sources}, version, previous, farm, planting }` |
+| GET | `/predictions/{id}` | `{ prediction (yieldMin/Max, yieldUnit, totalMin/Max, harvestStart/End, dataQualityScore, conditionsSummary, factors[], suitability{verdict,score,explanation}, advisories[], limitations[], methodVersion), risks[], inputs{snapshot,sources}, version, previous, farm, planting }` |
+
+`suitability.verdict` is `suitable` (score ≥70), `marginal` (45–69), `unsuitable` (<45) or `unknown` when no environmental data is available. Advisories are proactive planting, water, soil, temperature and management guidance.
 
 ## Recommendations & notifications
 | PATCH | `/recommendations/{id}` | `{ status: new\|read\|completed }` |
@@ -98,7 +104,12 @@ Response 201/200: `{ accepted, duplicates, flagged, rejected:[{messageId,type,re
 `GET /dashboard?farmId=` → totals, farm list, selected farm's plantings, predictions, active risks, activities, latest readings, devices.
 
 ## Admin (role `admin`)
-`GET /admin/stats|users?q=|audit|crops` · `PATCH /admin/users { userId, role }` · `PATCH /admin/crops { cropId, …thresholds }` · `POST /admin/announcements { title, body }`.
+- `GET /admin/stats|users?q=|audit|varieties|crops` · `GET /admin/settings?key=` (raw + effective values; `key=risk_thresholds` supported).
+- `PATCH /admin/users { userId, role }` · `PATCH /admin/crops { cropId, …thresholds }` · `PATCH /admin/varieties { varietyId, name?, maturityFactor?, yieldFactor?, notes? }` · `PATCH /admin/settings { key:"risk_thresholds", value:{ …partial thresholds } }`.
+- `POST /admin/crops { slug, name, …agronomic fields }` (201) · `POST /admin/varieties { cropId, name, maturityFactor?, yieldFactor? }` (201) · `POST /admin/announcements { title, body }` · `POST /admin/maintenance { action:"retention", readingsDays? }` (purges expired sessions/tokens/cache rows and old logs/readings; returns per-table counts).
+- `DELETE /admin/crops?id=` (soft-deactivates so historical plantings survive) · `DELETE /admin/varieties?id=` · `DELETE /admin/settings?key=risk_thresholds` (resets to built-in defaults).
+
+Crop min/max pairs are validated (`min <= max`) on write. Risk thresholds stored in `system_settings` are merged over built-in defaults and validated; malformed overrides are ignored at evaluation time.
 
 ## Geo
 `GET /geo?q=place` (Nominatim, 1 req/s) · `GET /geo?lat=&lng=` (elevation, Copernicus DEM via Open-Meteo).

@@ -25,6 +25,7 @@ import { summarizeSensors } from "./sensors";
 import { getSoil, soilSummary, SOIL_PROVIDER, type SoilProfile } from "./soil";
 import { getForecast, getSeasonWeather } from "./weather";
 import { getRuleFor, ensureSeed } from "./seed";
+import { getRiskThresholds } from "./settings";
 import { logActivity } from "./support";
 
 type CropRow = typeof crops.$inferSelect;
@@ -110,11 +111,12 @@ async function runEvaluation(farmId: string, opts: { force?: boolean } = {}): Pr
   }
   const sensors = await summarizeSensors(farmId);
   if (sensors) available.add("sensor");
+  const thresholds = await getRiskThresholds();
 
   const seenKeys: string[] = [];
   let created = 0;
   for (const { p, c } of rows) {
-    const risks = evaluateRisks({ crop: cropParams(c), irrigation: p.irrigation, plantingDate: p.plantingDate, asOf: today, daily, sensors, soil: soilSummary(soil) });
+    const risks = evaluateRisks({ crop: cropParams(c), irrigation: p.irrigation, plantingDate: p.plantingDate, asOf: today, daily, sensors, soil: soilSummary(soil) }, thresholds);
     for (const r of risks) {
       const key = `${farmId}:${p.id}:${r.category}`;
       seenKeys.push(key);
@@ -182,6 +184,7 @@ export async function generatePrediction(user: User, plantingId: string) {
     soilError = (e as Error).message;
   }
   const sensors = await summarizeSensors(farm.id);
+  const thresholds = await getRiskThresholds();
   const crop = cropParams(row.c);
   const variety = row.v ? { name: row.v.name, maturityFactor: Number(row.v.maturityFactor), yieldFactor: Number(row.v.yieldFactor) } : null;
   const input = {
@@ -195,6 +198,7 @@ export async function generatePrediction(user: User, plantingId: string) {
     weather: season.daily.map(({ date, tMax, tMin, precipMm, kind }) => ({ date, tMax, tMin, precipMm, kind })),
     soil: soilSummary(soil),
     sensors,
+    thresholds,
   };
 
   let result;
@@ -218,7 +222,7 @@ export async function generatePrediction(user: User, plantingId: string) {
         harvestStart: result.harvestStart, harvestEnd: result.harvestEnd,
         dataQualityScore: result.dataQuality.score, methodVersion: result.version,
         conditionsSummary: { ...result.conditions, growthProgressPct: result.growthProgressPct, areaHa: result.areaHa, dataQuality: result.dataQuality },
-        factors: result.factors, limitations: result.limitations,
+        factors: result.factors, suitability: result.suitability, advisories: result.advisories, limitations: result.limitations,
       })
       .returning();
     await tx.insert(predictionInputs).values({

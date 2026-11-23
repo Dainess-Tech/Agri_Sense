@@ -9,7 +9,8 @@ export type AreaUnit = keyof typeof AREA_UNITS;
 
 export function toHectares(size: number, unit: string): number {
   const def = AREA_UNITS[unit as AreaUnit];
-  return size * (def ? def.toHa : 1);
+  if (!def) throw new Error(`Unknown area unit: ${unit}`);
+  return size * def.toHa;
 }
 
 export function round(n: number, dp = 2): number {

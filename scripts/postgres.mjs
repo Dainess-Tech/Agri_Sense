@@ -53,6 +53,19 @@ if (action === "start") {
     "-l", join(socketDir, "server.log"),
     "-w", "start",
   ]);
+  // initdb only creates postgres/template databases — make sure the app's
+  // database exists so `npm run db:push` works on a brand-new clone.
+  const exists = spawnSync(join(bin, "psql"), [
+    "-h", socketDir, "-p", port, "-U", "postgres", "-d", "postgres", "-tAc",
+    "SELECT 1 FROM pg_database WHERE datname = 'app_db'",
+  ], { encoding: "utf8" });
+  if (exists.status !== 0) {
+    console.error(exists.stderr || "Could not check for app_db");
+    process.exit(1);
+  }
+  if (exists.stdout.trim() !== "1") {
+    run("createdb", ["-h", socketDir, "-p", port, "-U", "postgres", "app_db"]);
+  }
   console.log(`PostgreSQL ready on 127.0.0.1:${port} (database: app_db)`);
 } else if (action === "stop") {
   run("pg_ctl", ["-D", dataDir, "-m", "fast", "-w", "stop"]);

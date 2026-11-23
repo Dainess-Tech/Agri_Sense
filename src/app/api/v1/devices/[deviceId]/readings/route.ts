@@ -3,7 +3,8 @@ import { db } from "@/db";
 import { sensorReadings } from "@/db/schema";
 import { requireUser } from "@/server/auth";
 import { getDeviceForUser } from "@/server/access";
-import { handle, json, pageParams } from "@/server/http";
+import { badRequest, handle, json, pageParams } from "@/server/http";
+import { SENSOR_CODES } from "@/modules/iot/validation";
 import { readingSeries } from "@/server/services/sensors";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export const GET = handle(async (req: Request, ctx: Ctx) => {
   const { device } = await getDeviceForUser(user, (await ctx.params).deviceId);
   const url = new URL(req.url);
   const series = url.searchParams.get("series");
+  if (series && !SENSOR_CODES.includes(series)) throw badRequest(`Unknown sensor type "${series}"`);
   if (series) {
     const hours = Math.min(24 * 90, Math.max(1, Math.round(Number(url.searchParams.get("hours")) || 24)));
     return json({ sensorType: series, hours, series: await readingSeries({ deviceId: device.id, sensorType: series, hours }) });

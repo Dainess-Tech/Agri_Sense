@@ -10,7 +10,12 @@
     "db:start": "node scripts/postgres.mjs start",
     "db:stop": "node scripts/postgres.mjs stop",
     "db:status": "node scripts/postgres.mjs status",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "test:smoke": "bash scripts/test-smoke.sh",
+    "test:api": "bash scripts/test-api.sh",
+    "test:backend": "bash scripts/test-backend.sh",
+    "test": "npm run test:smoke && npm run test:api && npm run test:backend"
   },
   "dependencies": {
     "@types/web-push": "^3.6.4",

@@ -21,6 +21,11 @@ export const SENSOR_DEFS: Record<string, SensorDef> = {
   air_humidity: { code: "air_humidity", label: "Air humidity", unit: "%RH", minValid: 0, maxValid: 100, hardware: "DHT22" },
   soil_temperature: { code: "soil_temperature", label: "Soil temperature", unit: "°C", minValid: -55, maxValid: 125, hardware: "DS18B20" },
   soil_ph: { code: "soil_ph", label: "Soil pH", unit: "pH", minValid: 0, maxValid: 14, hardware: "Soil pH probe" },
+  // Optional NPK nutrient probes (proposal §3.2). Values are mg/kg (ppm) as
+  // reported by common ESP32 NPK modules; only deployed where hardware exists.
+  soil_n: { code: "soil_n", label: "Soil nitrogen (N)", unit: "mg/kg", minValid: 0, maxValid: 2000, hardware: "NPK soil nutrient sensor" },
+  soil_p: { code: "soil_p", label: "Soil phosphorus (P)", unit: "mg/kg", minValid: 0, maxValid: 2000, hardware: "NPK soil nutrient sensor" },
+  soil_k: { code: "soil_k", label: "Soil potassium (K)", unit: "mg/kg", minValid: 0, maxValid: 2000, hardware: "NPK soil nutrient sensor" },
 };
 
 export const SENSOR_CODES = Object.keys(SENSOR_DEFS);
@@ -51,6 +56,12 @@ export function validateReading(type: string, value: number): ValidationResult |
       break;
     case "soil_ph":
       if (value < 3 || value > 10) return { quality: "suspect", unit: def.unit, note: "pH outside typical agricultural soils (3–10) — check calibration" };
+      break;
+    case "soil_n":
+    case "soil_p":
+    case "soil_k":
+      if (value === 0) return { quality: "suspect", unit: def.unit, note: "0 mg/kg suggests an uncalibrated or disconnected NPK probe" };
+      if (value >= 2000) return { quality: "suspect", unit: def.unit, note: "At sensor full-scale — check calibration" };
       break;
     case "air_temperature":
       if (value > 55) return { quality: "suspect", unit: def.unit, note: "Air temperature above 55 °C — check sensor shading" };

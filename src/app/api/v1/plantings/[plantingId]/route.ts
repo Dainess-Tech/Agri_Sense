@@ -1,9 +1,9 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { crops, plantings } from "@/db/schema";
+import { cropVarieties, crops, plantings } from "@/db/schema";
 import { requireUser, type User } from "@/server/auth";
 import { getFarmForUser } from "@/server/access";
-import { conflict, handle, json, notFound, parseBody } from "@/server/http";
+import { badRequest, conflict, handle, json, notFound, parseBody } from "@/server/http";
 import { logActivity } from "@/server/services/support";
 import { plantingPatch, UUID_RE } from "@/server/validators";
 
@@ -29,6 +29,19 @@ export const PATCH = handle(async (req: Request, ctx: Ctx) => {
   const user = await requireUser();
   const { p, cropName, farm } = await load(user, (await ctx.params).plantingId, "write");
   const body = await parseBody(req, plantingPatch);
+  if (body.actualYieldUnit !== undefined && body.actualYield === undefined) {
+    throw badRequest("actualYieldUnit can only be supplied together with actualYield");
+  }
+  const finalCropId = body.cropId ?? p.cropId;
+  const finalVarietyId = "varietyId" in body ? body.varietyId : p.varietyId;
+  if (body.cropId || finalVarietyId !== p.varietyId) {
+    const [crop] = await db.select().from(crops).where(eq(crops.id, finalCropId)).limit(1);
+    if (!crop || !crop.active) throw badRequest("Crop is not in the active catalogue");
+    if (finalVarietyId) {
+      const [variety] = await db.select().from(cropVarieties).where(eq(cropVarieties.id, finalVarietyId)).limit(1);
+      if (!variety || variety.cropId !== finalCropId) throw badRequest("Selected variety does not belong to this crop");
+    }
+  }
   const { version, plantedArea, actualYield, ...rest } = body;
   const [updated] = await db
     .update(plantings)

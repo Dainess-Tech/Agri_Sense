@@ -23,10 +23,10 @@ function getPool(): Pool {
     );
   }
 
-  const pool = new Pool({ connectionString: databaseUrl });
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__agriSensePool = pool;
-  }
+  // Always cache the pool on globalThis — in production each request would
+  // otherwise create a fresh Pool and exhaust PostgreSQL's connection limit.
+  const pool = new Pool({ connectionString: databaseUrl, max: 20 });
+  globalForDb.__agriSensePool = pool;
   return pool;
 }
 
@@ -34,9 +34,7 @@ function getDb(): Database {
   if (globalForDb.__agriSenseDb) return globalForDb.__agriSenseDb;
 
   const instance = drizzle(getPool());
-  if (process.env.NODE_ENV !== "production") {
-    globalForDb.__agriSenseDb = instance;
-  }
+  globalForDb.__agriSenseDb = instance;
   return instance;
 }
 

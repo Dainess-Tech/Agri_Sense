@@ -10,7 +10,7 @@ export function GET() {
     endpoints: {
       auth: ["POST /auth/register", "POST /auth/login", "POST /auth/logout", "GET /auth/me", "POST /auth/forgot-password", "POST /auth/reset-password", "POST /auth/verify-email", "POST /auth/resend-verification"],
       users: ["GET|PATCH|DELETE /users/profile", "GET|PATCH /users/preferences", "PATCH /users/password", "GET /users/export"],
-      farms: ["GET|POST /farms", "GET|PATCH|DELETE /farms/{id}", "GET /farms/{id}/weather", "GET /farms/{id}/soil", "GET /farms/{id}/risks", "GET /farms/{id}/recommendations", "GET|POST /farms/{id}/activities", "GET /farms/{id}/readings", "GET /farms/{id}/predictions"],
+      farms: ["GET|POST /farms", "GET|PATCH|DELETE /farms/{id}", "GET|POST|PATCH|DELETE /farms/{id}/members", "GET /farms/{id}/weather", "GET /farms/{id}/soil", "GET /farms/{id}/risks", "GET /farms/{id}/recommendations", "GET|POST /farms/{id}/activities", "GET /farms/{id}/readings", "GET /farms/{id}/predictions"],
       crops: ["GET /crops"],
       plantings: ["GET|POST /plantings", "GET|PATCH|DELETE /plantings/{id}"],
       devices: ["GET|POST /devices", "GET|PATCH|DELETE /devices/{id}", "POST /devices/{id} (rotate-key)", "GET /devices/{id}/readings"],
@@ -20,7 +20,7 @@ export function GET() {
       notifications: ["GET|POST /notifications", "PATCH /notifications/{id}", "GET|POST /notifications/push"],
       reports: ["GET /reports/farms/{id}?type=summary|readings|weather|plantings|predictions"],
       dashboard: ["GET /dashboard"],
-      admin: ["GET /admin/stats|users|audit|crops", "PATCH /admin/users|crops", "POST /admin/announcements"],
+      admin: ["GET /admin/stats|users|audit|crops|varieties|settings", "PATCH /admin/users|crops|varieties|settings", "POST /admin/crops|varieties|announcements|maintenance", "DELETE /admin/crops|varieties|settings"],
       geo: ["GET /geo?q=", "GET /geo?lat=&lng="],
     },
   });

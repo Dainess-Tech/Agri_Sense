@@ -20,13 +20,14 @@ let seq = Date.now();
 function sample(at) {
   const h = at.getUTCHours() + at.getUTCMinutes() / 60;
   const diurnal = Math.sin(((h - 9) / 24) * 2 * Math.PI);
-  const drift = process.env.DRY ? -((Date.now() - at.getTime()) / 3.6e6) * -0.1 : 0;
+  // Older backfilled samples are wetter; moisture dries down as time moves toward now.
+  const drift = process.env.DRY ? ((Date.now() - at.getTime()) / 3.6e6) * 0.1 : 0;
   const fault = !!process.env.FAULT;
   return {
     messageId: `${id}-${seq++}`,
     measuredAt: Math.floor(at.getTime() / 1000),
     readings: [
-      { type: "soil_moisture", value: fault ? 0 : +(process.env.DRY ? 18 + Math.random() * 3 - drift : 32 + Math.random() * 4 - diurnal * 2).toFixed(1) },
+      { type: "soil_moisture", value: fault ? 0 : +(process.env.DRY ? 18 + Math.random() * 3 + drift : 32 + Math.random() * 4 - diurnal * 2).toFixed(1) },
       { type: "air_temperature", value: +(23 + diurnal * 6 + Math.random()).toFixed(1) },
       { type: "air_humidity", value: +(62 - diurnal * 15 + Math.random() * 3).toFixed(0) },
       { type: "soil_temperature", value: fault ? -127 : +(20 + diurnal * 2.5).toFixed(1) },

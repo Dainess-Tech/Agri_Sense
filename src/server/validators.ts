@@ -1,9 +1,14 @@
 import { z } from "zod";
+import { SENSOR_CODES } from "@/modules/iot/validation";
 
 const AREA = z.enum(["hectares", "acres", "square_meters"]);
 const IRRIGATION = z.enum(["rainfed", "irrigated", "mixed"]);
 const STATUS = z.enum(["planned", "planted", "germination", "vegetative", "flowering", "maturing", "harvested", "failed"]);
-const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+/** Strict calendar date — rejects impossible dates such as 2026-13-45 (bug: previously passed to DB and 500'd). */
+export const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine((s) => {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}, "Invalid calendar date");
 
 // NOTE: create schemas apply defaults; patch schemas must NOT (otherwise omitted
 // fields would be silently reset on update).
@@ -67,7 +72,7 @@ export const deviceInput = z.object({
   name: z.string().trim().min(2).max(80),
   deviceUid: z.string().trim().regex(/^[A-Za-z0-9_-]{4,64}$/, "4–64 chars: letters, numbers, - or _").optional(),
   hardware: z.string().trim().max(80).default("ESP32"),
-  sensors: z.array(z.enum(["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph"])).default(["soil_moisture", "air_temperature", "air_humidity", "soil_temperature"]),
+  sensors: z.array(z.enum(SENSOR_CODES as [string, ...string[]])).default(["soil_moisture", "air_temperature", "air_humidity", "soil_temperature"]),
   intervalSec: z.coerce.number().int().min(60).max(86400).default(900),
 });
 

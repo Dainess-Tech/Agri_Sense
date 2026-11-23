@@ -54,20 +54,21 @@ Key decisions
 4. Range widened by data-quality score (weather history 30, forecast 20, soil 20, sensors 20, variety 5, planting 5) and remaining season length.
 5. Harvest window from growing-degree-days (base temperature, GDD to maturity), fallback to catalogue days.
 6. Risks from the risk engine + seasonal deficit; limitations listed explicitly.
+7. Environmental suitability verdict (`suitable` / `marginal` / `unsuitable` / `unknown`, 0–100 score) derived from limiting factors and risk severity, plus proactive advisories for planting, water, soil, temperature and management. Persisted in `predictions.suitability` / `predictions.advisories`.
 
 No LLM is used to produce numbers. When enough harvest records exist, add `ml-*` versions behind the same contract and compare with `prediction_versions`.
 
 ## Risk engine
 
-Configurable thresholds (`DEFAULT_RISK_THRESHOLDS`) + crop thresholds (catalogue). Categories: drought, excessive rainfall, waterlogging, heat stress, cold stress, soil moisture, soil pH, season disruption. Each risk carries severity, explanation and source (sensor / forecast / soil / history). Evaluation (`evaluateFarm`) runs after sensor ingestion, on dashboard load (throttled to 10 min) and on demand; it upserts `farm_risks` with dedupe keys, resolves risks whose source data no longer shows them, creates recommendations and notifications (deduplicated), checks device connectivity and harvest-window reminders.
+Configurable thresholds (`DEFAULT_RISK_THRESHOLDS`, overridable at runtime via `system_settings["risk_thresholds"]` through `GET/PATCH/DELETE /admin/settings`) + crop thresholds (catalogue, fully editable via `/admin/crops` and `/admin/varieties`). Categories: drought, excessive rainfall, waterlogging, heat stress, cold stress, soil moisture, soil pH, season disruption. Each risk carries severity, explanation and source (sensor / forecast / soil / history). Evaluation (`evaluateFarm`) runs after sensor ingestion, on dashboard load (throttled to 10 min) and on demand; it upserts `farm_risks` with dedupe keys, resolves risks whose source data no longer shows them, creates recommendations and notifications (deduplicated), checks device connectivity and harvest-window reminders.
 
 ## IoT protocol
 
-`POST /api/v1/iot/readings` with `X-Device-Id` + `Authorization: Bearer <key>` (keys are hashed, rotatable, independent of user accounts). Single message or `{ messages: [...] }` batch (≤200) for buffered uploads. Idempotent on `(device, messageId, sensorType)`. Response returns `intervalSec` so the server can reconfigure the device. Disconnected sensors are sent as `null` (rejected, not stored) or caught by validation sentinels (DS18B20 −127/85 °C, moisture 0/100 %).
+`POST /api/v1/iot/readings` with `X-Device-Id` + `Authorization: Bearer <key>` (keys are hashed, rotatable, independent of user accounts). Single message or `{ messages: [...] }` batch (≤200) for buffered uploads. Idempotent on `(device, messageId, sensorType)`. Response returns `intervalSec` so the server can reconfigure the device. Disconnected sensors are sent as `null` (rejected, not stored) or caught by validation sentinels (DS18B20 −127/85 °C, moisture 0/100 %, NPK 0/full-scale). Supported types: soil moisture, soil pH, soil temperature, air temperature, air humidity and optional NPK (`soil_n`, `soil_p`, `soil_k`, mg/kg).
 
 ## Offline / sync
 
-- SW caches: shell (precache), pages (network-first → `/offline`), API GETs (network-first → cached copy flagged `x-agrisense-cache: offline`), static assets (cache-first). Auth, IoT and exports are never cached; user caches are cleared on logout.
+- SW caches: shell (precache), pages (network-first → `/offline`), static assets (cache-first). API responses are **never** cached by the SW; `useApi` keeps the last successful GET in IndexedDB (`kv`) for offline fallback. Auth, IoT and exports are never cached; user caches are cleared on logout and on 401.
 - IndexedDB `kv` keeps last responses per endpoint; `outbox` keeps queued mutations with status `pending | conflict | failed`.
 
 ## Next steps (roadmap)

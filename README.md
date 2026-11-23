@@ -59,21 +59,34 @@ agrisense/
 
 ## Run locally (Ubuntu)
 
+The repo includes a self-contained PostgreSQL helper — no system database or Docker is required:
+
 ```bash
-cp .env.example .env          # set DATABASE_URL
+cp .env.example .env      # defaults point at the bundled DB on 127.0.0.1:5433
 npm install
-npx drizzle-kit push          # create tables
-npm run dev                   # http://localhost:3000
+npm run db:start          # initialise & start PostgreSQL (first run creates the cluster)
+npm run db:push           # create/update tables
+npm run dev               # http://localhost:3000
 ```
 
-PostgreSQL via Docker instead of apt:
+Production-style run:
+
 ```bash
-docker run -d --name agrisense-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=app_db -p 5432:5432 postgres:16
+npm run build && npm start
+```
+
+Use an existing PostgreSQL server instead by setting `DATABASE_URL` in `.env`:
+```bash
+DATABASE_URL=postgresql://user:password@127.0.0.1:5432/app_db
 ```
 
 - The **first registered account becomes admin**.
-- Without an email provider, verification/reset links are printed in the server log and shown on screen (dev "console mode").
-- Crop catalogue (maize, beans, wheat, rice, potatoes + varieties) is seeded automatically and editable in **Admin → Crop catalogue**.
+- Without an email provider, verification/reset links are printed in the server log and shown on screen (dev "console mode"). **Reset tokens are never returned by the API in production** — configure `MAIL_API_URL` (and optionally `MAIL_API_KEY`) to deliver real emails.
+- Crop catalogue (maize, beans, wheat, rice, potatoes + varieties) is seeded automatically and fully editable via **Admin → Crop catalogue** (`/api/v1/admin/crops`, `/api/v1/admin/varieties`).
+- Risk thresholds are runtime-configurable from `system_settings` via `/api/v1/admin/settings`; `DELETE` resets them to built-in defaults.
+- Farms can be shared with other accounts as `viewer` or `manager` via `/api/v1/farms/{id}/members` (owner/admin only).
+- Predictions include an environmental **suitability verdict/score** and proactive **advisories** in addition to the yield range, harvest window, risks and factors.
+- IoT ingestion accepts optional NPK nutrient probes (`soil_n`, `soil_p`, `soil_k` in mg/kg) alongside moisture, pH, soil temperature, air temperature and humidity.
 
 ## End-to-end demo (SRS §11)
 
@@ -83,13 +96,13 @@ docker run -d --name agrisense-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=a
 4. Send data: flash the firmware *or* click **“Send simulated reading”** *or* run
    `DEVICE_ID=as-xxxx DEVICE_API_KEY=ask_xxx BACKFILL_HOURS=48 node scripts/simulate-device.mjs`
 5. Dashboard / Monitoring show readings with timestamps, units and fault flags.
-6. **Predictions** → generate → see yield range, total production, harvest window, risks, factors, data quality, limitations and the saved input snapshot.
+6. **Predictions** → generate → see yield range, total production, harvest window, suitability verdict, advisories, risks, factors, data quality, limitations and the saved input snapshot.
 7. Revisit the prediction later; export CSV/PDF from **Reports**.
 
 ## PWA & offline
 
 - Installable (manifest, scalable AgriSense icon, standalone display, install button + iOS fallback hint).
-- Service worker: cached app shell, previously visited pages and API responses (network-first, offline fallback, `/offline` page).
+- Service worker: cached app shell and previously visited pages (offline fallback, `/offline` page). API responses are **never** cached by the service worker to avoid cross-user data leaks; offline snapshots live in IndexedDB and are cleared on sign-out/401.
 - IndexedDB: last-seen data snapshots + an **outbox** of queued changes (create farm/planting, log activity, complete recommendation). Replayed in order on reconnect; idempotent via `clientId`; **409 conflicts** are surfaced for review instead of overwriting newer data.
 - Status pill: Online / Offline / Syncing / N pending / needs review.
 - New predictions are disabled offline (they need fresh weather/soil data) — cached predictions remain viewable.
@@ -109,7 +122,11 @@ Without VAPID keys, alerts still appear in the in-app centre and as local device
 | `npm run build && npm start` | Production build & run |
 | `npm run typecheck` | TypeScript |
 | `npm run lint` | ESLint |
-| `npx drizzle-kit push` | Apply schema changes to the database |
+| `npm run db:start` / `db:stop` / `db:status` | Manage the bundled local PostgreSQL |
+| `npm run db:push` | Apply schema changes to the database |
+| `npm run db:generate` | Generate a versioned SQL migration from the schema into `drizzle/` |
+| `npm run test:smoke` / `test:api` / `test:backend` | HTTP integration suites (require the app and local DB to be running) |
+| `npm test` | Run all three integration suites |
 
 ## Data attribution
 

@@ -35,18 +35,44 @@ async function fetchSoil(lat: number, lng: number) {
   const params = new URLSearchParams({ lon: lng.toFixed(4), lat: lat.toFixed(4), value: "mean" });
   for (const p of ["phh2o", "soc", "nitrogen", "sand", "silt", "clay"]) params.append("property", p);
   for (const d of ["0-5cm", "5-15cm"]) params.append("depth", d);
-  const res = await fetch(`${URL_BASE}?${params}`, { signal: AbortSignal.timeout(20_000), cache: "no-store" });
-  if (res.status === 429) throw new Error("SoilGrids rate limit reached");
-  if (!res.ok) throw new Error(`SoilGrids returned ${res.status}`);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${URL_BASE}?${params}`, { signal: AbortSignal.timeout(12_000), cache: "no-store" });
+      if (res.status === 429) throw new Error("SoilGrids rate limit reached");
+      if (!res.ok) throw new Error(`SoilGrids returned ${res.status}`);
+      return res;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 2 && (e as Error).name !== "AbortError") {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+        continue;
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  throw lastError;
+}
+
+async function parseSoil(lat: number, lng: number) {
+  const res = await fetchSoil(lat, lng);
   const body = (await res.json()) as { properties?: { layers?: Layer[] } };
   const layers = body?.properties?.layers;
   if (!Array.isArray(layers)) throw new Error("Unexpected SoilGrids response");
+  const layerThickness = (label: string) => {
+    const m = label.match(/^(\d+)-(\d+)cm$/);
+    return m ? Math.max(1, Number(m[2]) - Number(m[1])) : 1;
+  };
   const get = (name: string): number | null => {
     const l = layers.find((x) => x.name === name);
     if (!l) return null;
-    const vals = l.depths.map((d) => d.values?.mean).filter((v): v is number => typeof v === "number");
-    if (!vals.length) return null;
-    return vals.reduce((a, b) => a + b, 0) / vals.length / (l.unit_measure?.d_factor || 1);
+    const vals = l.depths
+      .map((d) => ({ value: d.values?.mean, weight: layerThickness(d.label) }))
+      .filter((v): v is { value: number; weight: number } => typeof v.value === "number");
+    const totalWeight = vals.reduce((a, v) => a + v.weight, 0);
+    if (!vals.length || !totalWeight) return null;
+    // Thickness-weighted mean for an honest "0-15cm" aggregate.
+    return vals.reduce((a, v) => a + v.value * v.weight, 0) / totalWeight / (l.unit_measure?.d_factor || 1);
   };
   // d_factor conversions → pH, g/kg (soc dg/kg÷10), g/kg (nitrogen cg/kg÷100), % (g/kg÷10)
   return { ph: get("phh2o"), soc: get("soc"), n: get("nitrogen"), sand: get("sand"), silt: get("silt"), clay: get("clay") };
@@ -57,7 +83,7 @@ export async function getSoil(lat: number, lng: number): Promise<SoilProfile> {
   const [row] = await db.select().from(soilProfiles).where(eq(soilProfiles.cacheKey, key)).limit(1);
   if (row && row.expiresAt > new Date()) return row;
   try {
-    const s = await fetchSoil(lat, lng);
+    const s = await parseSoil(lat, lng);
     const r1 = (v: number | null, dp = 1) => (v === null ? null : v.toFixed(dp));
     const available = Object.values(s).some((v) => v !== null);
     const now = new Date();
@@ -85,6 +111,11 @@ export async function getSoil(lat: number, lng: number): Promise<SoilProfile> {
     if (row) return row;
     throw e;
   }
+}
+
+/** True when the profile came from the stale-cache fallback on a failed provider refresh. */
+export function soilIsStale(p: SoilProfile): boolean {
+  return p.expiresAt <= new Date();
 }
 
 export function soilSummary(p: SoilProfile | null) {

@@ -25,10 +25,10 @@ const REQUEST_TIMEOUT_MS = 20_000;
 function unauthorized(opts: ApiOptions) {
   if (typeof window === "undefined") return;
   void clearCachedData();
-  window.dispatchEvent(new CustomEvent("agrisense:unauthorized", { detail: { silent: opts.silent ?? false } }));
-  if (opts.silent) return;
   const next = window.location.pathname + window.location.search + window.location.hash;
-  window.location.assign(`/auth/login?next=${encodeURIComponent(next)}`);
+  // Navigation is performed by AppProvider with the Next.js router so that
+  // signed-out redirects work consistently in client components.
+  window.dispatchEvent(new CustomEvent("agrisense:unauthorized", { detail: { next, silent: opts.silent ?? false } }));
 }
 
 export async function api<T = unknown>(path: string, opts: ApiOptions = {}): Promise<T> {
