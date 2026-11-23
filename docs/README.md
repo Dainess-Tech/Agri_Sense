@@ -1,4 +1,5 @@
-# Docs
-- srs.md — full requirements specification (source of truth)
-- architecture.md — module boundaries (later)
-- api-contracts.md — endpoint shapes (define before integration)
+# Documentation
+
+- [GIT_WORKFLOW.md](GIT_WORKFLOW.md) — local setup and team workflow
+- [ARCHITECTURE.md](ARCHITECTURE.md) — application architecture and design
+- [API.md](API.md) — REST API contracts

@@ -1,6 +1,10 @@
-# React + TypeScript + Vite
+# Legacy React + TypeScript + Vite scaffold
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The active AgriSense application is now at the repository root and uses Next.js. This Vite starter is retained as a reference scaffold and is not part of the root app's runtime. To run AgriSense, follow the setup instructions in the [root README](../README.md).
+
+To run this scaffold independently, use `npm install` and `npm run dev` from this directory.
+
+## Template notes
 
 Currently, two official plugins are available:
 
