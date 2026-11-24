@@ -45,6 +45,11 @@ func (s *Server) dashboardGet(w http.ResponseWriter, r *http.Request) {
 			selected = id
 		}
 	}
+	selectedFarm, err := s.getFarmForUser(r.Context(), u, selected, "read")
+	if err != nil {
+		Error(w, r, err)
+		return
+	}
 	var activePlantings, devices, online, risks int
 	_ = s.DB.QueryRow(r.Context(), `select (select count(*) from plantings where farm_id=any($1::uuid[]) and status not in ('planned','harvested','failed')),(select count(*) from iot_devices where farm_id=any($1::uuid[])),(select count(*) from farm_risks where farm_id=any($1::uuid[]) and active=true)`, ids).Scan(&activePlantings, &devices, &risks)
 	pRows, _ := s.DB.Query(r.Context(), `select p.id::text,p.crop_id::text,p.status::text,p.planting_date::text,c.name,p.planted_area::text from plantings p join crops c on c.id=p.crop_id where p.farm_id=$1 and p.status not in ('planned','harvested','failed') order by p.planting_date desc`, selected)
@@ -99,5 +104,5 @@ func (s *Server) dashboardGet(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(raw, &m)
 		aOut = append(aOut, m)
 	}
-	JSON(w, map[string]interface{}{"farms": farms, "selectedFarmId": selected, "totals": map[string]int{"farms": len(farms), "activePlantings": activePlantings, "devices": devices, "devicesOnline": online, "activeRisks": risks, "unread": unread}, "selected": map[string]interface{}{"plantings": plantings, "predictions": preds, "risks": rOut, "activities": aOut, "latestReadings": s.latestReadings(r, selected), "devices": dOut}}, 200)
+	JSON(w, map[string]interface{}{"farms": farms, "selectedFarmId": selected, "totals": map[string]int{"farms": len(farms), "activePlantings": activePlantings, "devices": devices, "devicesOnline": online, "activeRisks": risks, "unread": unread}, "selected": map[string]interface{}{"farm": selectedFarm, "plantings": plantings, "predictions": preds, "risks": rOut, "activities": aOut, "latestReadings": s.latestReadings(r, selected), "devices": dOut}}, 200)
 }

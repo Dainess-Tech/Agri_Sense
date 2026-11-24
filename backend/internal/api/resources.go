@@ -222,6 +222,56 @@ func (s *Server) latestReadings(r *http.Request, fid string) []interface{} {
 }
 func parseFloat(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
 
+type openMeteoDaily struct {
+	Time                        []string   `json:"time"`
+	Temperature2mMax            []*float64 `json:"temperature_2m_max"`
+	Temperature2mMin            []*float64 `json:"temperature_2m_min"`
+	PrecipitationSum            []*float64 `json:"precipitation_sum"`
+	PrecipitationProbabilityMax []*float64 `json:"precipitation_probability_max"`
+}
+
+type openMeteoWeather struct {
+	Elevation float64        `json:"elevation"`
+	Daily     openMeteoDaily `json:"daily"`
+}
+
+func normalizeWeather(raw []byte, provider string, retrievedAt time.Time, cached bool, forecast bool) (map[string]interface{}, error) {
+	var payload openMeteoWeather
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode weather response: %w", err)
+	}
+	if payload.Daily.Time == nil {
+		return nil, fmt.Errorf("weather response has no daily time series")
+	}
+
+	valueAt := func(values []*float64, index int) *float64 {
+		if index >= len(values) {
+			return nil
+		}
+		return values[index]
+	}
+	today := time.Now().UTC().Format("2006-01-02")
+	daily := make([]interface{}, 0, len(payload.Daily.Time))
+	for i, date := range payload.Daily.Time {
+		kind := "modelled"
+		if forecast && date >= today {
+			kind = "forecast"
+		}
+		daily = append(daily, map[string]interface{}{
+			"date": date, "tMax": valueAt(payload.Daily.Temperature2mMax, i),
+			"tMin":              valueAt(payload.Daily.Temperature2mMin, i),
+			"precipMm":          valueAt(payload.Daily.PrecipitationSum, i),
+			"precipProbability": valueAt(payload.Daily.PrecipitationProbabilityMax, i),
+			"kind":              kind,
+		})
+	}
+
+	return map[string]interface{}{
+		"provider": provider, "retrievedAt": retrievedAt, "cached": cached,
+		"stale": false, "elevation": payload.Elevation, "current": nil, "daily": daily,
+	}, nil
+}
+
 func (s *Server) weatherForecast(lat, lng float64) (interface{}, error) {
 	key := fmt.Sprintf("forecast:%.2f:%.2f", lat, lng)
 	var payload []byte
@@ -229,9 +279,7 @@ func (s *Server) weatherForecast(lat, lng float64) (interface{}, error) {
 	err := s.DB.QueryRow(context.Background(), `select payload::text,retrieved_at,expires_at from weather_snapshots where cache_key=$1`, key).Scan(&payload, &retrieved, &expires)
 	cached := err == nil && expires.After(time.Now())
 	if cached {
-		var v interface{}
-		json.Unmarshal(payload, &v)
-		return v, nil
+		return normalizeWeather(payload, "Open-Meteo forecast", retrieved, true, true)
 	}
 	params := url.Values{"latitude": {fmt.Sprintf("%.4f", lat)}, "longitude": {fmt.Sprintf("%.4f", lng)}, "past_days": {"14"}, "forecast_days": {"16"}, "daily": {"temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,et0_fao_evapotranspiration"}, "timezone": {"UTC"}}
 	resp, e := http.Get("https://api.open-meteo.com/v1/forecast?" + params.Encode())
@@ -242,12 +290,13 @@ func (s *Server) weatherForecast(lat, lng float64) (interface{}, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Weather provider returned %d", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, e := io.ReadAll(resp.Body)
+	if e != nil {
+		return nil, e
+	}
 	now := time.Now()
 	_, _ = s.DB.Exec(context.Background(), `insert into weather_snapshots(cache_key,kind,provider,latitude,longitude,payload,retrieved_at,expires_at) values($1,'forecast','Open-Meteo',$2,$3,$4,$5,$6) on conflict(cache_key) do update set payload=excluded.payload,retrieved_at=excluded.retrieved_at,expires_at=excluded.expires_at`, key, lat, lng, string(body), now, now.Add(time.Hour))
-	var v interface{}
-	json.Unmarshal(body, &v)
-	return v, nil
+	return normalizeWeather(body, "Open-Meteo forecast", now, false, true)
 }
 
 func (s *Server) weatherHistory(lat, lng float64, days int) (interface{}, error) {
@@ -263,11 +312,11 @@ func (s *Server) weatherHistory(lat, lng float64, days int) (interface{}, error)
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Weather provider returned %d", resp.StatusCode)
 	}
-	var v interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"provider": "Open-Meteo archive (ERA5)", "dataType": "modelled", "daily": v, "retrievedAt": time.Now()}, nil
+	return normalizeWeather(body, "Open-Meteo archive (ERA5)", time.Now(), false, false)
 }
 
 func (s *Server) soilProfile(lat, lng float64) (interface{}, error) {

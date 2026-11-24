@@ -14,7 +14,8 @@ export default function WeatherPage() {
   useEffect(() => { document.title = "Weather & soil · AgriSense"; }, []);
   if (!farmId) return <EmptyState title="No farm yet" action={<LinkButton href="/farms?new=1">Add a farm</LinkButton>} />;
   const farm = farms.find((f) => f.id === farmId);
-  const total = hist.data?.daily.reduce((a, d) => a + (d.precipMm ?? 0), 0) ?? 0;
+  const historyDays = Array.isArray(hist.data?.daily) ? hist.data.daily : null;
+  const total = historyDays?.reduce((a, d) => a + (d.precipMm ?? 0), 0) ?? 0;
   return (
     <>
       <PageHeader title="Weather & soil" description={`Environmental intelligence for ${farm?.name ?? "your farm"} — every value is labelled as measured, modelled or forecast.`} />
@@ -32,9 +33,9 @@ export default function WeatherPage() {
             </div>
           }
         >
-          {hist.loading && !hist.data ? <Skeleton className="h-48" /> : hist.error ? <Alert tone="warning">{hist.error}</Alert> : (
+          {hist.loading && !hist.data ? <Skeleton className="h-48" /> : hist.error ? <Alert tone="warning">{hist.error}</Alert> : hist.data && !historyDays ? <Alert tone="warning">Historical weather data is incomplete. Please reload this page.</Alert> : (
             <>
-              <WeatherChart days={(hist.data?.daily ?? []).map((d) => ({ date: d.date, rain: d.precipMm, tMax: d.tMax, tMin: d.tMin, kind: "model" }))} />
+              <WeatherChart days={(historyDays ?? []).map((d) => ({ date: d.date, rain: d.precipMm, tMax: d.tMax, tMin: d.tMin, kind: "model" }))} />
               <a className="mt-3 inline-block text-sm font-semibold text-leaf-800 underline" href={`/api/v1/reports/farms/${farmId}?type=weather&days=${days}`}>⬇ Export as CSV</a>
             </>
           )}

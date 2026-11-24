@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestDateOnly(t *testing.T) {
 	valid := []string{"2026-11-24", "2024-02-29"}
@@ -54,5 +57,61 @@ func TestRiskThresholdSettings(t *testing.T) {
 	}
 	if effective["forecastWindowDays"] != riskThresholdDefaults["forecastWindowDays"] {
 		t.Fatalf("missing default threshold: %v", effective["forecastWindowDays"])
+	}
+}
+
+func TestPredictionDetailProvidesFrontendFieldsAndSafeDefaults(t *testing.T) {
+	detail := predictionDetail(map[string]interface{}{
+		"id":                 "prediction-id",
+		"crop_name":          "Maize",
+		"yield_min":          "2.00",
+		"method_version":     "rules-1",
+		"data_quality_score": float64(70),
+	}, 70)
+
+	if detail["cropName"] != "Maize" || detail["methodVersion"] != "rules-1" {
+		t.Fatalf("prediction fields were not translated to the frontend contract: %#v", detail)
+	}
+	if _, exists := detail["crop_name"]; exists {
+		t.Fatal("database column names must not leak into the frontend response")
+	}
+	conditions, ok := detail["conditionsSummary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("conditionsSummary has unexpected type: %#v", detail["conditionsSummary"])
+	}
+	dataQuality, ok := conditions["dataQuality"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("dataQuality has unexpected type: %#v", conditions["dataQuality"])
+	}
+	if _, ok := dataQuality["components"].([]interface{}); !ok {
+		t.Fatalf("data quality components are not a list: %#v", dataQuality["components"])
+	}
+	if _, ok := detail["factors"].([]interface{}); !ok {
+		t.Fatalf("factors are not a list: %#v", detail["factors"])
+	}
+}
+
+func TestNormalizeWeatherConvertsOpenMeteoDailyArrays(t *testing.T) {
+	raw := []byte(`{"elevation":1200,"daily":{"time":["2025-01-01"],"temperature_2m_max":[26.5],"temperature_2m_min":[17.2],"precipitation_sum":[3.4],"precipitation_probability_max":[70]}}`)
+	weather, err := normalizeWeather(raw, "Open-Meteo forecast", time.Now(), true, true)
+	if err != nil {
+		t.Fatalf("normalize weather response: %v", err)
+	}
+	daily, ok := weather["daily"].([]interface{})
+	if !ok || len(daily) != 1 {
+		t.Fatalf("daily forecast is not a one-day list: %#v", weather["daily"])
+	}
+	day, ok := daily[0].(map[string]interface{})
+	if !ok || day["date"] != "2025-01-01" || day["kind"] != "modelled" {
+		t.Fatalf("unexpected normalized day: %#v", daily[0])
+	}
+	if value, ok := day["precipMm"].(*float64); !ok || value == nil || *value != 3.4 {
+		t.Fatalf("precipitation was not normalized: %#v", day["precipMm"])
+	}
+}
+
+func TestNormalizeWeatherRejectsInvalidPayload(t *testing.T) {
+	if _, err := normalizeWeather([]byte(`{"daily":{}}`), "Open-Meteo forecast", time.Now(), false, true); err == nil {
+		t.Fatal("expected a missing daily time series to be rejected")
 	}
 }

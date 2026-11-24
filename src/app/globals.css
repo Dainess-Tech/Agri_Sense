@@ -23,6 +23,83 @@ body {
   min-height: 100dvh;
 }
 
+html[data-theme="dark"] {
+  color-scheme: dark;
+  background-color: #111a14;
+  color: #edf4ee;
+}
+
+html[data-theme="dark"] body {
+  background-color: #111a14;
+  color: #edf4ee;
+}
+
+html[data-theme="dark"] [class~="bg-white"],
+html[data-theme="dark"] [class~="bg-white/90"] {
+  background-color: #1b2820;
+}
+
+html[data-theme="dark"] [class~="bg-white/10"] {
+  background-color: rgb(255 255 255 / 10%);
+}
+
+html[data-theme="dark"] [class~="bg-stone-50"] {
+  background-color: #111a14;
+}
+
+html[data-theme="dark"] [class~="bg-stone-50/60"] {
+  background-color: rgb(17 26 20 / 60%);
+}
+
+html[data-theme="dark"] [class~="bg-stone-100"] {
+  background-color: #25332a;
+}
+
+html[data-theme="dark"] [class~="bg-stone-200"],
+html[data-theme="dark"] [class~="bg-stone-200/70"] {
+  background-color: #34453a;
+}
+
+html[data-theme="dark"] [class~="text-stone-900"] {
+  color: #edf4ee;
+}
+
+html[data-theme="dark"] [class~="text-stone-800"] {
+  color: #e0e9e2;
+}
+
+html[data-theme="dark"] [class~="text-stone-700"] {
+  color: #c8d4cb;
+}
+
+html[data-theme="dark"] [class~="text-stone-600"] {
+  color: #b2c0b5;
+}
+
+html[data-theme="dark"] [class~="text-stone-500"] {
+  color: #9baa9e;
+}
+
+html[data-theme="dark"] [class~="text-stone-400"] {
+  color: #839287;
+}
+
+html[data-theme="dark"] [class~="border-stone-200"] {
+  border-color: #34453a;
+}
+
+html[data-theme="dark"] [class~="border-stone-300"] {
+  border-color: #526257;
+}
+
+html[data-theme="dark"] [class~="hover:bg-stone-50"]:hover {
+  background-color: #25332a;
+}
+
+html[data-theme="dark"] [class~="hover:bg-stone-100"]:hover {
+  background-color: #34453a;
+}
+
 /* Respect reduced-motion preferences (SRS accessibility requirement). */
 @media (prefers-reduced-motion: reduce) {
   *,

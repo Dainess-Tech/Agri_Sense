@@ -91,10 +91,22 @@ interface WeatherResp {
 const WMO: Record<number, string> = { 0: "☀️ Clear", 1: "🌤️ Mainly clear", 2: "⛅ Partly cloudy", 3: "☁️ Overcast", 45: "🌫️ Fog", 48: "🌫️ Fog", 51: "🌦️ Drizzle", 53: "🌦️ Drizzle", 55: "🌦️ Drizzle", 61: "🌧️ Light rain", 63: "🌧️ Rain", 65: "🌧️ Heavy rain", 80: "🌦️ Showers", 81: "🌧️ Showers", 82: "⛈️ Violent showers", 95: "⛈️ Thunderstorm", 96: "⛈️ Thunderstorm", 99: "⛈️ Thunderstorm" };
 
 export function WeatherPanel({ farmId, compact }: { farmId: string; compact?: boolean }) {
-  const { data, error, loading, savedAt } = useApi<WeatherResp>(`/farms/${farmId}/weather`);
+  const { data, error, loading, savedAt, reload } = useApi<WeatherResp>(`/farms/${farmId}/weather`);
   if (loading && !data) return <Card title="Weather"><Skeleton className="h-40" /></Card>;
   if (error && !data) return <Card title="Weather"><Alert tone="warning">{error}</Alert></Card>;
   if (!data) return null;
+  if (!Array.isArray(data.daily)) {
+    return (
+      <Card title="Weather">
+        <Alert tone="warning">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Weather data is incomplete. Please try again.</span>
+            <button type="button" className="font-semibold underline" onClick={() => void reload()}>Retry</button>
+          </div>
+        </Alert>
+      </Card>
+    );
+  }
   const today = new Date().toISOString().slice(0, 10);
   const days = compact ? data.daily.filter((d) => d.date >= today).slice(0, 7) : data.daily;
   const next7 = data.daily.filter((d) => d.date >= today).slice(0, 7);

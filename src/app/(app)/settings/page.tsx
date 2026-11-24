@@ -6,6 +6,7 @@ import { clearUserData } from "@/lib/client/offline-queue";
 import { useApi, useApp, type SessionUser } from "@/lib/client/hooks";
 import { InstallPrompt } from "@/components/pwa";
 import { PushToggle } from "@/components/push-toggle";
+import { useTheme } from "@/components/theme-provider";
 import { Alert, Badge, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
 
 interface Prefs { riskAlerts: boolean; predictionReady: boolean; deviceOffline: boolean; harvestReminders: boolean; systemAnnouncements: boolean; pushEnabled: boolean; minSeverity: string }
@@ -40,6 +41,7 @@ function ProfileFields({ user, onSave }: { user: SessionUser; onSave: (profile: 
 
 export default function SettingsPage() {
   const { user, refreshUser } = useApp();
+  const { theme, setTheme } = useTheme();
   const router = useRouter();
   const prefsQ = useApi<{ preferences: Prefs }>("/users/preferences");
   const [msg, setMsg] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -95,6 +97,23 @@ export default function SettingsPage() {
       <div className="grid gap-5 lg:grid-cols-2">
         <Card title="Profile" subtitle={user ? `${user.email} · member since ${new Date(user.createdAt).toLocaleDateString()}` : undefined} action={user && (user.emailVerified ? <Badge tone="green">Email verified</Badge> : <Button size="sm" variant="secondary" onClick={resend}>Verify email</Button>)}>
           {user ? <ProfileFields key={user.id} user={user} onSave={saveProfile} /> : <p className="text-sm text-stone-500">Loading profile…</p>}
+        </Card>
+        <Card title="Appearance">
+          <Field label="Theme" hint="This preference is saved on this device.">
+            <Select
+              value={theme}
+              onChange={(e) => {
+                try {
+                  setTheme(e.target.value === "dark" ? "dark" : "light");
+                } catch (e) {
+                  setMsg({ tone: "error", text: errorMessage(e) });
+                }
+              }}
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </Select>
+          </Field>
         </Card>
         <Card title="Notification preferences">
           {!p ? <p className="text-sm text-stone-500">Loading…</p> : (

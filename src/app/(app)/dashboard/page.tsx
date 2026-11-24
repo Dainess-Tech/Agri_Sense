@@ -11,7 +11,7 @@ interface Dash {
   totals: { farms: number; activePlantings: number; devices: number; devicesOnline: number; activeRisks: number; unread: number };
   seasons?: string[];
   selected: null | {
-    farm: FarmLite;
+    farm?: FarmLite;
     plantings: { id: string; cropName: string; plantingDate: string; plantedArea: string; areaUnit: string; status: string; season: string | null }[];
     predictions: { id: string; cropName: string; yieldMin: string; yieldMax: string; yieldUnit: string; harvestStart: string; harvestEnd: string; createdAt: string; dataQualityScore: number }[];
     risks: { id: string; category: string; severity: string; title: string; explanation: string; source: string; detectedAt: string }[];
@@ -22,8 +22,8 @@ interface Dash {
 }
 
 export default function DashboardPage() {
-  const { farmId, user } = useApp();
-  const { data, loading, error, savedAt } = useApi<Dash>(`/dashboard${farmId ? `?farmId=${farmId}` : ""}`);
+  const { farmId, farms, user } = useApp();
+  const { data, loading, error, savedAt, reload } = useApi<Dash>(`/dashboard${farmId ? `?farmId=${farmId}` : ""}`);
   useEffect(() => { document.title = "Dashboard · AgriSense"; }, []);
 
   if (loading && !data) {
@@ -39,6 +39,19 @@ export default function DashboardPage() {
   if (!data) return errorNotice;
 
   if (!data.selected) {
+    if (data.farms?.length) {
+      return (
+        <>
+          {errorNotice}
+          <Alert tone="error">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>Farm details could not be loaded. Please try again.</span>
+              <button type="button" className="font-semibold underline" onClick={() => void reload()}>Retry</button>
+            </div>
+          </Alert>
+        </>
+      );
+    }
     return (
       <>
         {errorNotice}
@@ -50,14 +63,30 @@ export default function DashboardPage() {
     );
   }
   const s = data.selected;
+  const selectedFarm = s.farm
+    ?? farms.find((farm) => farm.id === data.selectedFarmId)
+    ?? farms.find((farm) => farm.id === farmId);
+  if (!selectedFarm || !data.totals) {
+    return (
+      <>
+        {errorNotice}
+        <Alert tone="error">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>Dashboard details are incomplete. Please try again.</span>
+            <button type="button" className="font-semibold underline" onClick={() => void reload()}>Retry</button>
+          </div>
+        </Alert>
+      </>
+    );
+  }
   const t = data.totals;
   return (
     <div className="space-y-5">
       {errorNotice}
       <PageHeader
-        title={s.farm.name}
-        description={`${s.farm.locationName ?? `${Number(s.farm.latitude).toFixed(3)}, ${Number(s.farm.longitude).toFixed(3)}`} · ${s.farm.size} ${s.farm.areaUnit} · ${s.farm.irrigation}`}
-        action={<><LinkButton href="/predictions" variant="primary">📈 New prediction</LinkButton><LinkButton href={`/farms/${s.farm.id}`} variant="secondary">Farm details</LinkButton></>}
+        title={selectedFarm.name}
+        description={`${selectedFarm.locationName ?? `${Number(selectedFarm.latitude).toFixed(3)}, ${Number(selectedFarm.longitude).toFixed(3)}`} · ${selectedFarm.size} ${selectedFarm.areaUnit} · ${selectedFarm.irrigation}`}
+        action={<><LinkButton href="/predictions" variant="primary">📈 New prediction</LinkButton><LinkButton href={`/farms/${selectedFarm.id}`} variant="secondary">Farm details</LinkButton></>}
       />
       <SavedDataNotice savedAt={savedAt} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -74,8 +103,8 @@ export default function DashboardPage() {
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <WeatherPanel farmId={s.farm.id} compact />
-          <Card title="Active risks & alerts" action={<Link href={`/farms/${s.farm.id}?tab=risks`} className="text-sm font-semibold text-leaf-800 hover:underline">History →</Link>}>
+          <WeatherPanel farmId={selectedFarm.id} compact />
+          <Card title="Active risks & alerts" action={<Link href={`/farms/${selectedFarm.id}?tab=risks`} className="text-sm font-semibold text-leaf-800 hover:underline">History →</Link>}>
             <RiskList risks={s.risks} />
           </Card>
           <Card title="Latest yield predictions" action={<Link href="/predictions" className="text-sm font-semibold text-leaf-800 hover:underline">All →</Link>}>
@@ -109,7 +138,7 @@ export default function DashboardPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-stone-500">No active plantings. <Link className="font-semibold text-leaf-800 underline" href={`/farms/${s.farm.id}?tab=crops`}>Add one</Link>.</p>
+              <p className="text-sm text-stone-500">No active plantings. <Link className="font-semibold text-leaf-800 underline" href={`/farms/${selectedFarm.id}?tab=crops`}>Add one</Link>.</p>
             )}
           </Card>
           <Card title="Device status">
@@ -126,7 +155,7 @@ export default function DashboardPage() {
               <p className="text-sm text-stone-500">No devices. <Link className="font-semibold text-leaf-800 underline" href="/devices">Register an ESP32</Link>.</p>
             )}
           </Card>
-          <SoilPanel farmId={s.farm.id} />
+          <SoilPanel farmId={selectedFarm.id} />
           <Card title="Recent activity">
             <ul className="space-y-2 text-sm">
               {s.activities.map((a) => (

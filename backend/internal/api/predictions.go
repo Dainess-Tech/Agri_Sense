@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Server) predictionsGet(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +90,11 @@ func (s *Server) predictionsPost(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, err)
 		return
 	}
-	p, _ := s.predictionJSON(r.Context(), id)
+	p, err := s.predictionJSON(r.Context(), id)
+	if err != nil {
+		Error(w, r, err)
+		return
+	}
 	JSON(w, map[string]interface{}{"prediction": p}, 201)
 }
 func (s *Server) predictionJSON(ctx context.Context, id string) (map[string]interface{}, error) {
@@ -96,9 +103,80 @@ func (s *Server) predictionJSON(ctx context.Context, id string) (map[string]inte
 		return nil, err
 	}
 	var m map[string]interface{}
-	json.Unmarshal(raw, &m)
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
 	return m, nil
 }
+
+func predictionConditions(raw interface{}, quality int) map[string]interface{} {
+	summary, ok := raw.(map[string]interface{})
+	if !ok {
+		summary = map[string]interface{}{}
+	}
+	conditions := map[string]interface{}{
+		"rainSincePlantingMm": nil,
+		"forecastRainMm":      nil,
+		"meanTempC":           nil,
+		"gddAccumulated":      nil,
+		"hotDays":             0,
+		"coldDays":            0,
+		"soilPh":              nil,
+		"soilPhSource":        nil,
+		"soilMoistureAvg":     nil,
+		"soilTexture":         nil,
+		"growthProgressPct":   0,
+		"areaHa":              0,
+	}
+	for key := range conditions {
+		if value, exists := summary[key]; exists {
+			conditions[key] = value
+		}
+	}
+
+	dataQuality, ok := summary["dataQuality"].(map[string]interface{})
+	if !ok {
+		dataQuality = map[string]interface{}{}
+	}
+	if _, exists := dataQuality["score"]; !exists {
+		dataQuality["score"] = quality
+	}
+	if _, ok := dataQuality["components"].([]interface{}); !ok {
+		dataQuality["components"] = []interface{}{}
+	}
+	conditions["dataQuality"] = dataQuality
+	return conditions
+}
+
+func predictionList(raw interface{}) []interface{} {
+	list, ok := raw.([]interface{})
+	if !ok {
+		return []interface{}{}
+	}
+	return list
+}
+
+func predictionDetail(raw map[string]interface{}, quality int) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                raw["id"],
+		"cropName":          raw["crop_name"],
+		"yieldMin":          raw["yield_min"],
+		"yieldMax":          raw["yield_max"],
+		"yieldUnit":         raw["yield_unit"],
+		"totalMin":          raw["total_min"],
+		"totalMax":          raw["total_max"],
+		"totalUnit":         raw["total_unit"],
+		"harvestStart":      raw["harvest_start"],
+		"harvestEnd":        raw["harvest_end"],
+		"dataQualityScore":  raw["data_quality_score"],
+		"methodVersion":     raw["method_version"],
+		"createdAt":         raw["created_at"],
+		"conditionsSummary": predictionConditions(raw["conditions_summary"], quality),
+		"factors":           predictionList(raw["factors"]),
+		"limitations":       predictionList(raw["limitations"]),
+	}
+}
+
 func (s *Server) predictionGet(w http.ResponseWriter, r *http.Request) {
 	u, e := requireAuth(r)
 	if e != nil {
@@ -106,28 +184,88 @@ func (s *Server) predictionGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "predictionId")
-	var farm, plant string
-	err := s.DB.QueryRow(r.Context(), `select farm_id::text,planting_id::text from predictions where id=$1`, id).Scan(&farm, &plant)
+	var farm, plant, farmName, plantingDate, plantedArea, areaUnit, irrigation string
+	var actualYield, actualYieldUnit sql.NullString
+	err := s.DB.QueryRow(r.Context(), `select p.farm_id::text,p.planting_id::text,f.name,pl.planting_date::text,pl.planted_area::text,pl.area_unit,pl.irrigation::text,pl.actual_yield::text,pl.actual_yield_unit
+		from predictions p join farms f on f.id=p.farm_id join plantings pl on pl.id=p.planting_id where p.id=$1`, id).
+		Scan(&farm, &plant, &farmName, &plantingDate, &plantedArea, &areaUnit, &irrigation, &actualYield, &actualYieldUnit)
 	if err != nil {
-		Error(w, r, notFound(""))
+		if errors.Is(err, pgx.ErrNoRows) {
+			Error(w, r, notFound(""))
+		} else {
+			Error(w, r, err)
+		}
 		return
 	}
 	if _, e = s.getFarmForUser(r.Context(), u, farm, "read"); e != nil {
 		Error(w, r, e)
 		return
 	}
-	p, _ := s.predictionJSON(r.Context(), id)
-	var input, sources interface{}
-	risks := []interface{}{}
-	_ = s.DB.QueryRow(r.Context(), `select snapshot,sources from prediction_inputs where prediction_id=$1`, id).Scan(&input, &sources)
-	rows, _ := s.DB.Query(r.Context(), `select category,severity::text,explanation from prediction_risks where prediction_id=$1`, id)
-	if rows != nil {
-		defer rows.Close()
-		for rows.Next() {
-			var c, se, ex string
-			rows.Scan(&c, &se, &ex)
-			risks = append(risks, map[string]interface{}{"category": c, "severity": se, "explanation": ex})
-		}
+	rawPrediction, err := s.predictionJSON(r.Context(), id)
+	if err != nil {
+		Error(w, r, err)
+		return
 	}
-	JSON(w, map[string]interface{}{"prediction": p, "risks": risks, "inputs": map[string]interface{}{"snapshot": input, "sources": sources}, "previous": nil, "farm": map[string]interface{}{"id": farm}, "planting": map[string]interface{}{"id": plant}, "version": "agrisense-rules-1.0.0"}, 200)
+	var quality int
+	switch value := rawPrediction["data_quality_score"].(type) {
+	case float64:
+		quality = int(value)
+	case int:
+		quality = value
+	}
+	p := predictionDetail(rawPrediction, quality)
+
+	var input, sources interface{}
+	err = s.DB.QueryRow(r.Context(), `select snapshot,sources from prediction_inputs where prediction_id=$1`, id).Scan(&input, &sources)
+	if err != nil && err != pgx.ErrNoRows {
+		Error(w, r, err)
+		return
+	}
+	risks := []interface{}{}
+	rows, err := s.DB.Query(r.Context(), `select id::text,category,severity::text,explanation from prediction_risks where prediction_id=$1`, id)
+	if err != nil {
+		Error(w, r, err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var riskID, category, severity, explanation string
+		if err := rows.Scan(&riskID, &category, &severity, &explanation); err != nil {
+			Error(w, r, err)
+			return
+		}
+		risks = append(risks, map[string]interface{}{"id": riskID, "category": category, "severity": severity, "explanation": explanation})
+	}
+	if err := rows.Err(); err != nil {
+		Error(w, r, err)
+		return
+	}
+
+	var version, method, description string
+	err = s.DB.QueryRow(r.Context(), `select version,method,description from prediction_versions where version=$1`, rawPrediction["method_version"]).Scan(&version, &method, &description)
+	if err != nil {
+		Error(w, r, err)
+		return
+	}
+
+	var yieldActual, yieldUnit interface{}
+	if actualYield.Valid {
+		yieldActual = actualYield.String
+	}
+	if actualYieldUnit.Valid {
+		yieldUnit = actualYieldUnit.String
+	}
+	JSON(w, map[string]interface{}{
+		"prediction": p,
+		"risks":      risks,
+		"inputs":     map[string]interface{}{"snapshot": input, "sources": sources},
+		"previous":   nil,
+		"farm":       map[string]interface{}{"id": farm, "name": farmName},
+		"planting": map[string]interface{}{
+			"id": plant, "plantingDate": plantingDate, "plantedArea": plantedArea,
+			"areaUnit": areaUnit, "irrigation": irrigation,
+			"actualYield": yieldActual, "actualYieldUnit": yieldUnit,
+		},
+		"version": map[string]interface{}{"version": version, "method": method, "description": description},
+	}, 200)
 }
