@@ -6,7 +6,7 @@ AgriSense is an installable **Progressive Web App** for agricultural intelligenc
 
 **New to the repo? Start with [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md)** — Ubuntu setup, cloning, pushing and the team branching workflow.
 
-The active application now lives at the repository root and uses Next.js. The earlier Vite starter remains in [`frontend/`](frontend) as a reference scaffold; it is not the app launched by the root-level commands below. The `backend/` directory remains a placeholder because API routes are part of the Next.js app.
+The active application uses Next.js for pages and a standalone Go service for backend APIs. Next.js proxies `/api/v1/*` and `/api/health` to the Go service. The earlier Vite starter remains in [`frontend/`](frontend) as a reference scaffold; it is not the app launched by the root-level commands below.
 
 ---
 
@@ -15,14 +15,14 @@ The active application now lives at the repository root and uses Next.js. The ea
 | Layer | Choice |
 |------|--------|
 | Frontend (PWA) | Next.js 16 App Router, React 19, TypeScript, Tailwind CSS 4, service worker, IndexedDB outbox |
-| Backend | Next.js route handlers — versioned REST API at `/api/v1` (modular monolith) |
-| Database | PostgreSQL + Drizzle ORM |
-| Prediction & risk engines | Pure TypeScript modules (`src/modules/*`) — no DB/framework imports, portable to a Python/FastAPI service later |
+| Backend | Standalone Go HTTP API — versioned REST API at `/api/v1` (Next.js proxies API requests) |
+| Database | PostgreSQL (Go `pgx`; schema managed by Drizzle Kit) |
+| Domain logic | Go API implementation under `backend/internal/api` |
 | IoT | ESP32 (Arduino C++) → HTTPS JSON with device API keys and idempotent message IDs |
 | External data | Open-Meteo (forecast + ERA5 archive + elevation), ISRIC SoilGrids v2, OSM Nominatim, OpenStreetMap embed maps |
 | Notifications | In-app centre + Web Push (VAPID, optional) |
 
-> The SRS suggested Python/FastAPI (Option A). We chose a single TypeScript codebase to move faster as a two-person team; the prediction engine is isolated behind a plain function contract (`predictYield(input) → result`) so it can be re-implemented in Python when ML models arrive, without touching the frontend.
+> The API is a Go service; the Next.js app is the frontend and reverse proxy. PostgreSQL schema changes continue to use the existing Drizzle schema and migration tooling.
 
 ## Project structure
 
@@ -32,6 +32,7 @@ agrisense/
 ├── firmware/esp32/agrisense_node/   # ESP32 firmware (+ config.example.h)
 ├── public/                    # sw.js (service worker), icons, images
 ├── scripts/simulate-device.mjs      # ESP32 simulator for demos without hardware
+├── backend/                   # Go API, PostgreSQL access and endpoint handlers
 └── src/
     ├── app/
     │   ├── page.tsx           # landing page
@@ -39,21 +40,11 @@ agrisense/
     │   ├── (app)/             # protected app: dashboard, farms, predictions, monitoring,
     │   │                      #   devices, weather, recommendations, notifications,
     │   │                      #   reports, settings, admin
-    │   ├── api/v1/            # REST API (auth, users, farms, crops, plantings, devices,
-    │   │                      #   iot, predictions, recommendations, notifications,
-    │   │                      #   reports, dashboard, admin, geo)
     │   ├── manifest.ts        # web app manifest
     │   └── offline/           # offline fallback page
     ├── components/            # UI kit, charts, map, app shell, PWA widgets
-    ├── db/                    # Drizzle schema + client
+    ├── db/schema.ts           # Drizzle schema used by migration tooling
     ├── lib/client/            # API client, IndexedDB offline queue, hooks/context
-    ├── modules/               # PURE domain logic (testable in isolation)
-    │   ├── prediction-engine/ #   yield range, harvest window (GDD), data quality
-    │   ├── risk-engine/       #   crop-specific configurable risk rules
-    │   ├── iot/               #   sensor validation & device status
-    │   └── shared/            #   units, dates, severity
-    ├── server/                # auth/sessions, access control, HTTP helpers,
-    │   └── services/          #   weather, soil, sensors, notifications, intelligence, seed
     └── proxy.ts               # route protection (Next 16 "proxy", formerly middleware)
 ```
 
@@ -66,13 +57,21 @@ cp .env.example .env      # defaults point at the bundled DB on 127.0.0.1:5433
 npm install
 npm run db:start          # initialise & start PostgreSQL (first run creates the cluster)
 npm run db:push           # create/update tables
-npm run dev               # http://localhost:3000
+```
+
+Run the API and frontend in separate terminals:
+
+```bash
+npm run dev:api           # Go API on :3001
+npm run dev               # Next.js frontend and API proxy on :3000
 ```
 
 Production-style run:
 
 ```bash
-npm run build && npm start
+npm run build && npm run build:api
+npm start                 # Next.js frontend
+./dist/agrisense-api      # Go API
 ```
 
 Use an existing PostgreSQL server instead by setting `DATABASE_URL` in `.env`:
@@ -119,14 +118,16 @@ Without VAPID keys, alerts still appear in the in-app centre and as local device
 | Command | Purpose |
 |--------|---------|
 | `npm run dev` | Dev server |
-| `npm run build && npm start` | Production build & run |
+| `npm run dev:api` / `npm run start:api` | Go API (development runner) |
+| `npm run build && npm run build:api` | Production builds for frontend and API |
+| `npm start` / `./dist/agrisense-api` | Run frontend and Go API |
 | `npm run typecheck` | TypeScript |
 | `npm run lint` | ESLint |
 | `npm run db:start` / `db:stop` / `db:status` | Manage the bundled local PostgreSQL |
 | `npm run db:push` | Apply schema changes to the database |
 | `npm run db:generate` | Generate a versioned SQL migration from the schema into `drizzle/` |
 | `npm run test:smoke` / `test:api` / `test:backend` | HTTP integration suites (require the app and local DB to be running) |
-| `npm test` | Run all three integration suites |
+| `npm test` | Run Go unit tests and all three HTTP integration suites |
 
 ## Data attribution
 

@@ -136,10 +136,10 @@ Protect `main`: repo → **Settings → Branches → Add rule → main → Requi
 | Area | Folders | Owner |
 |------|---------|-------|
 | Frontend / PWA | `src/app/(app)`, `src/app/auth`, `src/components`, `src/lib/client`, `public/` | Partner |
-| Backend / API / DB | `src/app/api/v1`, `src/server`, `src/db` | You |
-| Agricultural intelligence | `src/modules/prediction-engine`, `src/modules/risk-engine` | Shared |
-| IoT | `firmware/esp32`, `src/modules/iot`, `scripts/simulate-device.mjs` | You |
-| Contracts | `docs/API.md`, `src/db/schema.ts` | Agree together before changing |
+| Backend / API | `backend/` | You |
+| Agricultural intelligence | `backend/internal/api` | Shared |
+| IoT | `firmware/esp32`, `backend/internal/api`, `scripts/simulate-device.mjs` | You |
+| Contracts / schema | `docs/API.md`, `src/db/schema.ts` | Agree together before changing |
 
 ## 10. Useful commands
 

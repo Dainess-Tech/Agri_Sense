@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -uo pipefail
-BASE=http://localhost:3000
+BASE=${AGRISENSE_BASE:-http://localhost:3000}
 PASS=0; FAIL=0
 COOKIE=/tmp/opencode/verify-cookies.txt
 EMAIL="verify-$(date +%s)@example.com"

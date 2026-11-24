@@ -1,5 +1,7 @@
 # AgriSense REST API v1
 
+The Go service in `backend/` implements these routes. The Next.js app proxies API requests to it.
+
 Base URL: `/api/v1` · JSON in/out · Times are ISO-8601 UTC · Machine-readable index: `GET /api/v1`
 
 **Auth**: users authenticate with an httpOnly session cookie (`agrisense_session`, 30-day sliding expiry) set by `/auth/login` or `/auth/register`. Devices use `X-Device-Id` + `Authorization: Bearer <device_key>`.

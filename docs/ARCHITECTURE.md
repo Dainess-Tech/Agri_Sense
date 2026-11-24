@@ -8,20 +8,17 @@
 │ Service worker (public/sw.js) · IndexedDB outbox & snapshots          │
 └───────────────▲───────────────────────────────────────────────────────┘
                 │ JSON over HTTPS  /api/v1/*
-┌───────────────┴──────────── API layer (src/app/api/v1) ───────────────┐
-│ handle() error wrapper · zod validation · session auth · RBAC ·       │
-│ ownership checks (server/access.ts) · rate limits                     │
-├────────────────────────── Services (src/server/services) ─────────────┤
-│ weather (Open-Meteo, cache) · soil (SoilGrids, cache) · sensors       │
-│ intelligence (evaluateFarm, generatePrediction) · notifications       │
-├────────────────────────── Pure domain modules (src/modules) ──────────┤
-│ prediction-engine · risk-engine · iot/validation · shared/units       │
+┌────────────────────── Go API layer (backend/) ────────────────────────┐
+│ Next.js rewrite → Go HTTP API (backend/internal/api)                  │
+│ session auth · RBAC · ownership checks · validation · rate limits     │
+├────────────────────────── Go services and domain logic ────────────────┤
+│ weather · soil · sensors · predictions · risk evaluation · push      │
 └───────────────▲──────────────────────────────────▲────────────────────┘
-                │ Drizzle ORM                      │ HTTP
+                │ pgx                               │ HTTP
            PostgreSQL                     ESP32 devices · Open-Meteo · SoilGrids · Nominatim · Web Push
 ```
 
-Rules: pages never touch the DB; route handlers stay thin; domain modules never import DB/HTTP/Next (they are unit-testable and portable to Python).
+Rules: pages never touch the DB; Go owns API/data access; Next.js only serves pages and proxies API requests. Drizzle Kit and `src/db/schema.ts` manage PostgreSQL schema changes.
 
 ## Database (logical ERD)
 
@@ -74,6 +71,6 @@ Configurable thresholds (`DEFAULT_RISK_THRESHOLDS`, overridable at runtime via `
 ## Next steps (roadmap)
 
 - Background worker/cron for scheduled `evaluateFarm` over all farms (currently event-driven + on dashboard load).
-- Real email provider (Resend/SES) in `server/services/support.ts`.
+- Real email provider (Resend/SES) in the Go API.
 - MQTT ingestion when device count grows; Redis for rate limits/cache when running multiple instances.
-- Calibrate engine with pilot harvest data; add unit tests for `src/modules/*`.
+- Calibrate engine with pilot harvest data; add Go unit tests for prediction and risk behavior.

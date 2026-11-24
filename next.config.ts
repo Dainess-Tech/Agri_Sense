@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["web-push", "bcryptjs"],
+  async rewrites() {
+    const api = process.env.GO_API_URL ?? "http://127.0.0.1:3001";
+    return [
+      { source: "/api/v1/:path*", destination: `${api}/api/v1/:path*` },
+      { source: "/api/v1", destination: `${api}/api/v1` },
+      { source: "/api/health", destination: `${api}/api/health` },
+    ];
+  },
   async headers() {
     return [
       {
