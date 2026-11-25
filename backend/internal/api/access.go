@@ -22,21 +22,22 @@ func (s *Server) getFarmForUser(ctx context.Context, u *User, farmID, mode strin
 	}
 	var id, owner, name, latitude, longitude, size, areaUnit, irrigation string
 	var locationName, soilType, elevationM, archivedAt interface{}
+	var createdAt interface{}
 	var version int
-	err := s.DB.QueryRow(ctx, `select id::text,owner_id::text,name,latitude::text,longitude::text,size::text,area_unit,irrigation::text,location_name,soil_type,elevation_m::text,coalesce(archived_at::text,''),version from farms where id=$1`, farmID).Scan(&id, &owner, &name, &latitude, &longitude, &size, &areaUnit, &irrigation, &locationName, &soilType, &elevationM, &archivedAt, &version)
+	err := s.DB.QueryRow(ctx, `select id::text,owner_id::text,name,latitude::text,longitude::text,size::text,area_unit,irrigation::text,location_name,soil_type,elevation_m::text,coalesce(archived_at::text,''),created_at,version from farms where id=$1`, farmID).Scan(&id, &owner, &name, &latitude, &longitude, &size, &areaUnit, &irrigation, &locationName, &soilType, &elevationM, &archivedAt, &createdAt, &version)
 	if err != nil {
 		return nil, err
 	}
 	if owner == u.ID || u.Role == "admin" {
-		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "version": version}, nil
+		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "createdAt": createdAt, "version": version}, nil
 	}
 	var memberRole string
 	err = s.DB.QueryRow(ctx, `select role from farm_members where farm_id=$1 and user_id=$2`, farmID, u.ID).Scan(&memberRole)
 	if mode == "read" && (err == nil || u.Role == "agronomist") {
-		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "version": version}, nil
+		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "createdAt": createdAt, "version": version}, nil
 	}
 	if mode == "write" && memberRole == "manager" {
-		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "version": version}, nil
+		return map[string]interface{}{"id": id, "ownerId": owner, "name": name, "latitude": latitude, "longitude": longitude, "size": size, "areaUnit": areaUnit, "irrigation": irrigation, "locationName": locationName, "soilType": soilType, "elevationM": elevationM, "archivedAt": nilIfEmpty(archivedAt), "createdAt": createdAt, "version": version}, nil
 	}
 	return nil, forbidden("")
 }

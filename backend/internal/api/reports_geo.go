@@ -50,7 +50,100 @@ func (s *Server) reportGet(w http.ResponseWriter, r *http.Request) {
 	}, slug)
 	switch typ {
 	case "summary":
-		JSON(w, map[string]interface{}{"generatedAt": time.Now(), "farm": f}, 200)
+		plantings := []interface{}{}
+		pRows, err := s.DB.Query(r.Context(), `select p.id::text,c.name,v.name,p.planting_date::text,p.planted_area::text,p.area_unit,p.season,p.status,p.actual_yield::text,p.actual_yield_unit
+			from plantings p join crops c on c.id=p.crop_id left join crop_varieties v on v.id=p.variety_id
+			where p.farm_id=$1 order by p.planting_date desc`, fid)
+		if err == nil {
+			defer pRows.Close()
+			for pRows.Next() {
+				var id, crop, plantingDate, plantedArea, areaUnit, status string
+				var variety, season, actualYield, yieldUnit interface{}
+				if pRows.Scan(&id, &crop, &variety, &plantingDate, &plantedArea, &areaUnit, &season, &status, &actualYield, &yieldUnit) == nil {
+					plantings = append(plantings, map[string]interface{}{
+						"id": id, "cropName": crop, "varietyName": nilIfEmpty(variety),
+						"plantingDate": plantingDate, "plantedArea": plantedArea, "areaUnit": areaUnit,
+						"season": nilIfEmpty(season), "status": status,
+						"actualYield": nilIfEmpty(actualYield), "actualYieldUnit": nilIfEmpty(yieldUnit),
+					})
+				}
+			}
+		}
+
+		predictions := []interface{}{}
+		prRows, err := s.DB.Query(r.Context(), `select id::text,crop_name,yield_min::text,yield_max::text,yield_unit,total_min::text,total_max::text,total_unit,harvest_start::text,harvest_end::text,data_quality_score,method_version,created_at
+			from predictions where farm_id=$1 order by created_at desc`, fid)
+		if err == nil {
+			defer prRows.Close()
+			for prRows.Next() {
+				var id, crop, ymin, ymax, yunit, tmin, tmax, tunit, hstart, hend, method string
+				var quality int
+				var created time.Time
+				if prRows.Scan(&id, &crop, &ymin, &ymax, &yunit, &tmin, &tmax, &tunit, &hstart, &hend, &quality, &method, &created) == nil {
+					predictions = append(predictions, map[string]interface{}{
+						"id": id, "cropName": crop, "yieldMin": ymin, "yieldMax": ymax, "yieldUnit": yunit,
+						"totalMin": tmin, "totalMax": tmax, "totalUnit": tunit,
+						"harvestStart": hstart, "harvestEnd": hend, "dataQualityScore": quality,
+						"methodVersion": method, "createdAt": created,
+					})
+				}
+			}
+		}
+
+		risks := []interface{}{}
+		rRows, err := s.DB.Query(r.Context(), `select id::text,category,severity::text,title,active,detected_at
+			from farm_risks where farm_id=$1 order by detected_at desc limit 12`, fid)
+		if err == nil {
+			defer rRows.Close()
+			for rRows.Next() {
+				var id, category, severity, title string
+				var active bool
+				var detected time.Time
+				if rRows.Scan(&id, &category, &severity, &title, &active, &detected) == nil {
+					risks = append(risks, map[string]interface{}{
+						"id": id, "category": category, "severity": severity, "title": title,
+						"active": active, "detectedAt": detected,
+					})
+				}
+			}
+		}
+
+		recommendations := []interface{}{}
+		recRows, err := s.DB.Query(r.Context(), `select id::text,title,status,severity::text,requires_expert
+			from recommendations where farm_id=$1 order by created_at desc limit 200`, fid)
+		if err == nil {
+			defer recRows.Close()
+			for recRows.Next() {
+				var id, title, status, severity string
+				var requiresExpert bool
+				if recRows.Scan(&id, &title, &status, &severity, &requiresExpert) == nil {
+					recommendations = append(recommendations, map[string]interface{}{
+						"id": id, "title": title, "status": status,
+						"severity": severity, "requiresExpert": requiresExpert,
+					})
+				}
+			}
+		}
+
+		devices := []interface{}{}
+		dRows, err := s.DB.Query(r.Context(), `select name,device_uid,last_seen_at from iot_devices where farm_id=$1 order by name`, fid)
+		if err == nil {
+			defer dRows.Close()
+			for dRows.Next() {
+				var name, uid string
+				var lastSeen interface{}
+				if dRows.Scan(&name, &uid, &lastSeen) == nil {
+					devices = append(devices, map[string]interface{}{"name": name, "uid": uid, "lastSeenAt": nilIfEmpty(lastSeen)})
+				}
+			}
+		}
+
+		JSON(w, map[string]interface{}{
+			"generatedAt": time.Now(), "farm": f,
+			"plantings": plantings, "predictions": predictions, "risks": risks,
+			"recommendations": recommendations, "latestReadings": s.latestReadings(r, fid),
+			"devices": devices, "soil": map[string]interface{}{"available": false},
+		}, 200)
 	case "readings":
 		from := r.URL.Query().Get("from")
 		to := r.URL.Query().Get("to")

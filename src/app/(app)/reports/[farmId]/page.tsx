@@ -7,12 +7,12 @@ import { Alert, Button, Spinner } from "@/components/ui";
 interface Summary {
   generatedAt: string;
   farm: { name: string; locationName: string | null; latitude: string; longitude: string; size: string; areaUnit: string; irrigation: string; soilType: string | null; elevationM: string | null; createdAt: string };
-  plantings: { id: string; cropName: string; varietyName: string | null; plantingDate: string; plantedArea: string; areaUnit: string; status: string; season: string | null; actualYield: string | null; actualYieldUnit: string | null }[];
-  predictions: { id: string; cropName: string; yieldMin: string; yieldMax: string; yieldUnit: string; totalMin: string; totalMax: string; totalUnit: string; harvestStart: string; harvestEnd: string; dataQualityScore: number; methodVersion: string; createdAt: string }[];
-  risks: { id: string; category: string; severity: string; title: string; active: boolean; detectedAt: string }[];
-  recommendations: { id: string; title: string; status: string; severity: string; requiresExpert: boolean }[];
-  latestReadings: { sensorType: string; value: number; unit: string; quality: string; measuredAt: string }[];
-  devices: { name: string; uid: string; lastSeenAt: string | null }[];
+  plantings?: { id: string; cropName: string; varietyName: string | null; plantingDate: string; plantedArea: string; areaUnit: string; status: string; season: string | null; actualYield: string | null; actualYieldUnit: string | null }[];
+  predictions?: { id: string; cropName: string; yieldMin: string; yieldMax: string; yieldUnit: string; totalMin: string; totalMax: string; totalUnit: string; harvestStart: string; harvestEnd: string; dataQualityScore: number; methodVersion: string; createdAt: string }[];
+  risks?: { id: string; category: string; severity: string; title: string; active: boolean; detectedAt: string }[];
+  recommendations?: { id: string; title: string; status: string; severity: string; requiresExpert: boolean }[];
+  latestReadings?: { sensorType: string; value: number; unit: string; quality: string; measuredAt: string }[];
+  devices?: { name: string; uid: string; lastSeenAt: string | null }[];
   soil: { phH2o: string | null; clayPct: string | null; sandPct: string | null; siltPct: string | null; organicCarbonGKg: string | null; texture: string | null; available: boolean } | null;
 }
 
@@ -27,6 +27,12 @@ export default function PrintableReport() {
   if (error && !data) return <Alert tone="error">{error}</Alert>;
   if (!data) return null;
   const f = data.farm;
+  const plantings = data.plantings ?? [];
+  const predictions = data.predictions ?? [];
+  const latestReadings = data.latestReadings ?? [];
+  const devices = data.devices ?? [];
+  const risks = data.risks ?? [];
+  const recommendations = data.recommendations ?? [];
   return (
     <article className="mx-auto max-w-4xl rounded-2xl bg-white p-6 text-sm shadow-sm print:max-w-none print:p-0 print:shadow-none sm:p-10">
       <div className="no-print mb-6 flex justify-end gap-2">
@@ -63,38 +69,38 @@ export default function PrintableReport() {
       <section className="mt-6 break-inside-avoid">
         <h2 className="mb-2 text-base font-bold">Plantings & harvests</h2>
         <table className="w-full"><thead><tr><th className={th}>Crop</th><th className={th}>Planted</th><th className={th}>Area</th><th className={th}>Season</th><th className={th}>Status</th><th className={th}>Actual yield</th></tr></thead>
-          <tbody>{data.plantings.map((p) => <tr key={p.id}><td className={td}>{p.cropName}{p.varietyName ? ` (${p.varietyName})` : ""}</td><td className={td}>{fmtDate(p.plantingDate)}</td><td className={td}>{p.plantedArea} {p.areaUnit}</td><td className={td}>{p.season ?? "—"}</td><td className={td}>{p.status}</td><td className={td}>{p.actualYield ? `${p.actualYield} ${p.actualYieldUnit}` : "—"}</td></tr>)}</tbody>
+          <tbody>{plantings.map((p) => <tr key={p.id}><td className={td}>{p.cropName}{p.varietyName ? ` (${p.varietyName})` : ""}</td><td className={td}>{fmtDate(p.plantingDate)}</td><td className={td}>{p.plantedArea} {p.areaUnit}</td><td className={td}>{p.season ?? "—"}</td><td className={td}>{p.status}</td><td className={td}>{p.actualYield ? `${p.actualYield} ${p.actualYieldUnit}` : "—"}</td></tr>)}</tbody>
         </table>
-        {!data.plantings.length && <p className="text-stone-500">No plantings recorded.</p>}
+        {!plantings.length && <p className="text-stone-500">No plantings recorded.</p>}
       </section>
 
       <section className="mt-6 break-inside-avoid">
         <h2 className="mb-2 text-base font-bold">Yield predictions</h2>
         <table className="w-full"><thead><tr><th className={th}>Generated</th><th className={th}>Crop</th><th className={th}>Yield range</th><th className={th}>Total production</th><th className={th}>Harvest window</th><th className={th}>Data quality</th></tr></thead>
-          <tbody>{data.predictions.map((p) => <tr key={p.id}><td className={td}>{fmtDate(p.createdAt)}</td><td className={td}>{p.cropName}</td><td className={td}>{p.yieldMin}–{p.yieldMax} {p.yieldUnit}</td><td className={td}>{p.totalMin}–{p.totalMax} {p.totalUnit}</td><td className={td}>{fmtDate(p.harvestStart)} – {fmtDate(p.harvestEnd)}</td><td className={td}>{p.dataQualityScore}%</td></tr>)}</tbody>
+          <tbody>{predictions.map((p) => <tr key={p.id}><td className={td}>{fmtDate(p.createdAt)}</td><td className={td}>{p.cropName}</td><td className={td}>{p.yieldMin}–{p.yieldMax} {p.yieldUnit}</td><td className={td}>{p.totalMin}–{p.totalMax} {p.totalUnit}</td><td className={td}>{fmtDate(p.harvestStart)} – {fmtDate(p.harvestEnd)}</td><td className={td}>{p.dataQualityScore}%</td></tr>)}</tbody>
         </table>
-        {!data.predictions.length && <p className="text-stone-500">No predictions generated.</p>}
-        {data.predictions[0] && <p className="mt-1 text-xs text-stone-500">Method: {data.predictions[0].methodVersion} (rule-based; not yet calibrated against local harvest records).</p>}
+        {!predictions.length && <p className="text-stone-500">No predictions generated.</p>}
+        {predictions[0] && <p className="mt-1 text-xs text-stone-500">Method: {predictions[0].methodVersion} (rule-based; not yet calibrated against local harvest records).</p>}
       </section>
 
       <section className="mt-6 grid gap-6 sm:grid-cols-2 break-inside-avoid">
         <div>
           <h2 className="mb-2 text-base font-bold">Latest sensor readings</h2>
-          <ul className="space-y-1">{data.latestReadings.map((r) => <li key={r.sensorType}>{SENSOR_LABELS[r.sensorType]?.label ?? r.sensorType}: <strong>{r.value} {r.unit}</strong> <span className="text-xs text-stone-500">({fmtDateTime(r.measuredAt)}{r.quality !== "valid" ? `, ${r.quality}` : ""})</span></li>)}</ul>
-          {!data.latestReadings.length && <p className="text-stone-500">No recent readings.</p>}
-          <p className="mt-2 text-xs text-stone-500">Devices: {data.devices.map((d) => `${d.name} (last seen ${d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : "never"})`).join("; ") || "none"}</p>
+          <ul className="space-y-1">{latestReadings.map((r) => <li key={r.sensorType}>{SENSOR_LABELS[r.sensorType]?.label ?? r.sensorType}: <strong>{r.value} {r.unit}</strong> <span className="text-xs text-stone-500">({fmtDateTime(r.measuredAt)}{r.quality !== "valid" ? `, ${r.quality}` : ""})</span></li>)}</ul>
+          {!latestReadings.length && <p className="text-stone-500">No recent readings.</p>}
+          <p className="mt-2 text-xs text-stone-500">Devices: {devices.map((d) => `${d.name} (last seen ${d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : "never"})`).join("; ") || "none"}</p>
         </div>
         <div>
           <h2 className="mb-2 text-base font-bold">Risks</h2>
-          <ul className="space-y-1">{data.risks.slice(0, 12).map((r) => <li key={r.id}><span className="font-medium capitalize">[{r.severity}]</span> {r.title} <span className="text-xs text-stone-500">— {RISK_LABELS[r.category] ?? r.category}, {r.active ? "active" : "resolved"}, {fmtDate(r.detectedAt)}</span></li>)}</ul>
-          {!data.risks.length && <p className="text-stone-500">No risks recorded.</p>}
+          <ul className="space-y-1">{risks.slice(0, 12).map((r) => <li key={r.id}><span className="font-medium capitalize">[{r.severity}]</span> {r.title} <span className="text-xs text-stone-500">— {RISK_LABELS[r.category] ?? r.category}, {r.active ? "active" : "resolved"}, {fmtDate(r.detectedAt)}</span></li>)}</ul>
+          {!risks.length && <p className="text-stone-500">No risks recorded.</p>}
         </div>
       </section>
 
       <section className="mt-6 break-inside-avoid">
         <h2 className="mb-2 text-base font-bold">Recommendations</h2>
-        <ul className="list-disc space-y-1 pl-5">{data.recommendations.map((r) => <li key={r.id}>{r.title} <span className="text-xs text-stone-500">({r.status}{r.requiresExpert ? ", requires expert confirmation" : ""})</span></li>)}</ul>
-        {!data.recommendations.length && <p className="text-stone-500">None.</p>}
+        <ul className="list-disc space-y-1 pl-5">{recommendations.map((r) => <li key={r.id}>{r.title} <span className="text-xs text-stone-500">({r.status}{r.requiresExpert ? ", requires expert confirmation" : ""})</span></li>)}</ul>
+        {!recommendations.length && <p className="text-stone-500">None.</p>}
       </section>
 
       <footer className="mt-8 border-t border-stone-200 pt-3 text-xs text-stone-500">

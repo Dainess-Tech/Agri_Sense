@@ -7,7 +7,7 @@ import { useApi, useApp, type SessionUser } from "@/lib/client/hooks";
 import { InstallPrompt } from "@/components/pwa";
 import { PushToggle } from "@/components/push-toggle";
 import { useTheme } from "@/components/theme-provider";
-import { Alert, Badge, Button, Card, Field, Input, PageHeader, Select } from "@/components/ui";
+import { Alert, Badge, Button, Card, cx, Field, Input, PageHeader, Select } from "@/components/ui";
 
 interface Prefs { riskAlerts: boolean; predictionReady: boolean; deviceOffline: boolean; harvestReminders: boolean; systemAnnouncements: boolean; pushEnabled: boolean; minSeverity: string }
 interface ProfileInput { fullName: string; phone: string; country: string; language: string; measurementSystem: string }
@@ -88,6 +88,7 @@ export default function SettingsPage() {
     ["deviceOffline", "Device disconnections", "When a sensor station stops reporting"],
     ["harvestReminders", "Harvest-window reminders", "A week before the estimated harvest window"],
     ["systemAnnouncements", "System announcements", "Updates from AgriSense administrators"],
+
   ];
 
   return (
@@ -98,22 +99,29 @@ export default function SettingsPage() {
         <Card title="Profile" subtitle={user ? `${user.email} · member since ${new Date(user.createdAt).toLocaleDateString()}` : undefined} action={user && (user.emailVerified ? <Badge tone="green">Email verified</Badge> : <Button size="sm" variant="secondary" onClick={resend}>Verify email</Button>)}>
           {user ? <ProfileFields key={user.id} user={user} onSave={saveProfile} /> : <p className="text-sm text-stone-500">Loading profile…</p>}
         </Card>
-        <Card title="Appearance">
-          <Field label="Theme" hint="This preference is saved on this device.">
-            <Select
-              value={theme}
-              onChange={(e) => {
-                try {
-                  setTheme(e.target.value === "dark" ? "dark" : "light");
-                } catch (e) {
-                  setMsg({ tone: "error", text: errorMessage(e) });
-                }
-              }}
-            >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </Select>
-          </Field>
+        <Card title="Appearance" className="lg:col-span-2">
+          <div>
+            <p className="text-sm font-medium text-stone-800">Theme</p>
+            <p className="mb-3 text-xs text-stone-500">This preference is saved on this device.</p>
+            <div className="grid max-w-md grid-cols-2 gap-3" role="group" aria-label="Theme">
+              {(["light", "dark"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={theme === option}
+                  onClick={() => setTheme(option)}
+                  className={cx(
+                    "rounded-xl border px-4 py-3 text-sm font-semibold capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-leaf-500",
+                    theme === option
+                      ? "border-leaf-700 bg-leaf-50 text-leaf-800"
+                      : "border-stone-300 bg-white text-stone-800 hover:bg-stone-50",
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
         </Card>
         <Card title="Notification preferences">
           {!p ? <p className="text-sm text-stone-500">Loading…</p> : (
