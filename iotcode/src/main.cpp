@@ -16,8 +16,37 @@ DallasTemperature soilTemperature(&oneWire);
 WiFiClientSecure mqttClient;
 PubSubClient mqtt(mqttClient);
 
+constexpr uint16_t MQTT_BUFFER_SIZE = 1024;
+
 RTC_DATA_ATTR uint32_t sequence = 0;
 RTC_DATA_ATTR uint32_t intervalSeconds = INTERVAL_SEC;
+
+const char *mqttStateName(int state) {
+  switch (state) {
+  case MQTT_CONNECTION_TIMEOUT:
+    return "connection timed out";
+  case MQTT_CONNECTION_LOST:
+    return "connection lost";
+  case MQTT_CONNECT_FAILED:
+    return "network/TLS connection failed";
+  case MQTT_DISCONNECTED:
+    return "disconnected";
+  case MQTT_CONNECTED:
+    return "connected";
+  case MQTT_CONNECT_BAD_PROTOCOL:
+    return "unsupported protocol";
+  case MQTT_CONNECT_BAD_CLIENT_ID:
+    return "bad client ID";
+  case MQTT_CONNECT_UNAVAILABLE:
+    return "broker unavailable";
+  case MQTT_CONNECT_BAD_CREDENTIALS:
+    return "bad credentials";
+  case MQTT_CONNECT_UNAUTHORIZED:
+    return "not authorized";
+  default:
+    return "unknown";
+  }
+}
 
 uint32_t epochSeconds() {
   time_t now = time(nullptr);
@@ -26,9 +55,13 @@ uint32_t epochSeconds() {
 
 bool connectWiFi(uint32_t timeoutMs = 15000) {
   if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("Wi-Fi already connected; IP: ");
+    Serial.print(WiFi.localIP());
+    Serial.printf("; RSSI: %d dBm\n", WiFi.RSSI());
     return true;
   }
 
+  Serial.println("Connecting to Wi-Fi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   uint32_t started = millis();
@@ -37,9 +70,14 @@ bool connectWiFi(uint32_t timeoutMs = 15000) {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("Wi-Fi connected; IP: ");
+    Serial.print(WiFi.localIP());
+    Serial.printf("; RSSI: %d dBm\n", WiFi.RSSI());
     configTzTime("UTC0", "pool.ntp.org", "time.google.com");
     return true;
   }
+  Serial.printf("Wi-Fi connection timed out; status=%d\n",
+                static_cast<int>(WiFi.status()));
   return false;
 }
 
@@ -50,17 +88,26 @@ bool connectMqtt(uint32_t timeoutMs = 10000) {
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setInsecure();
+  Serial.printf("Connecting to MQTT broker %s:%u...\n", MQTT_HOST,
+                static_cast<unsigned>(MQTT_PORT));
 
   char clientId[64];
   snprintf(clientId, sizeof(clientId), "agrisense-%s-%lu", DEVICE_ID, millis());
   uint32_t started = millis();
   while (!mqtt.connected() && millis() - started < timeoutMs) {
-    mqtt.connect(clientId, MQTT_USERNAME, MQTT_PASSWORD);
+    if (mqtt.connect(clientId, MQTT_USERNAME, MQTT_PASSWORD)) {
+      Serial.println("MQTT connected");
+      return true;
+    }
     if (!mqtt.connected()) {
       delay(250);
     }
   }
-  return mqtt.connected();
+
+  int state = mqtt.state();
+  Serial.printf("MQTT connection failed; state=%d (%s)\n", state,
+                mqttStateName(state));
+  return false;
 }
 
 float readSoilMoisture() {
@@ -146,23 +193,31 @@ bool publishReading() {
   if (published) {
     Serial.printf("Published %u bytes to %s\n", payloadLength, MQTT_TOPIC);
   } else {
-    Serial.println("MQTT publish failed");
+    int state = mqtt.state();
+    Serial.printf("MQTT publish failed; payload=%u bytes, state=%d (%s)\n",
+                  static_cast<unsigned>(payloadLength), state,
+                  mqttStateName(state));
   }
   return published;
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(200);
+  Serial.println("\nAgriSense boot");
   analogReadResolution(12);
   dht.begin();
   soilTemperature.begin();
 
+  bool mqttBufferReady = mqtt.setBufferSize(MQTT_BUFFER_SIZE);
+  if (!mqttBufferReady) {
+    Serial.println("MQTT buffer allocation failed; skipping MQTT");
+  }
+
   if (connectWiFi()) {
-    if (connectMqtt()) {
+    if (mqttBufferReady && connectMqtt()) {
       publishReading();
       mqtt.loop();
-    } else {
-      Serial.println("MQTT connection failed");
     }
   } else {
     Serial.println("Wi-Fi connection failed");
@@ -172,6 +227,7 @@ void setup() {
   mqtt.disconnect();
   Serial.printf("Sequence: %lu, next interval: %lu seconds\n",
                 sequence, intervalSeconds);
+  Serial.flush();
   esp_deep_sleep((uint64_t)intervalSeconds * 1000000ULL);
 }
 

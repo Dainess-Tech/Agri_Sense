@@ -51,6 +51,11 @@ pio run --target upload
 pio device monitor
 ```
 
+The serial monitor runs at 115200 baud. On each boot, the sketch prints Wi-Fi
+connection status and IP address, then an MQTT connection status or error code.
+It goes to deep sleep after the attempt; press the board's reset button to run
+another attempt immediately.
+
 ### Upload troubleshooting
 
 Before uploading, run `pio device list` and confirm that the ESP32 appears as a
@@ -72,7 +77,9 @@ Replace the example with the port reported by `pio device list` (for example,
 
 ## MQTT payload
 
-The sketch publishes retained JSON to `MQTT_TOPIC`, for example:
+The sketch publishes retained JSON to `MQTT_TOPIC`. The MQTT client buffer is
+set to 1024 bytes so the JSON and topic fit; the library's 256-byte default is
+too small for this message. For example:
 
 ```json
 {
