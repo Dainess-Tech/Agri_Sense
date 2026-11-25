@@ -138,11 +138,23 @@ func (s *Server) reportGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		soil := map[string]interface{}{"available": false}
+		if lat, e1 := strconv.ParseFloat(fmt.Sprint(f["latitude"]), 64); e1 == nil {
+			if lng, e2 := strconv.ParseFloat(fmt.Sprint(f["longitude"]), 64); e2 == nil {
+				if profile, e3 := s.soilProfile(lat, lng); e3 == nil {
+					if outer, ok := profile.(map[string]interface{}); ok {
+						if row, ok := outer["soil"].(map[string]interface{}); ok {
+							soil = row
+						}
+					}
+				}
+			}
+		}
 		JSON(w, map[string]interface{}{
 			"generatedAt": time.Now(), "farm": f,
 			"plantings": plantings, "predictions": predictions, "risks": risks,
 			"recommendations": recommendations, "latestReadings": s.latestReadings(r, fid),
-			"devices": devices, "soil": map[string]interface{}{"available": false},
+			"devices": devices, "soil": soil,
 		}, 200)
 	case "readings":
 		from := r.URL.Query().Get("from")

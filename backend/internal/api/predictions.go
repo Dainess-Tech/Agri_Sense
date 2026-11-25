@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -48,6 +51,26 @@ func (s *Server) predictionsGet(w http.ResponseWriter, r *http.Request) {
 	}
 	JSON(w, map[string]interface{}{"predictions": out}, 200)
 }
+func (s *Server) recentSensorAverages(ctx context.Context, farmID string) map[string]float64 {
+	out := map[string]float64{}
+	rows, err := s.DB.Query(ctx, `select sensor_type,avg(value::float8)::text from sensor_readings
+		where farm_id=$1 and measured_at>now()-interval '7 days' and quality='valid' group by sensor_type`, farmID)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sensor string
+		var avg string
+		if rows.Scan(&sensor, &avg) == nil {
+			if value, ok := asFloat(avg); ok {
+				out[sensor] = value
+			}
+		}
+	}
+	return out
+}
+
 func (s *Server) predictionsPost(w http.ResponseWriter, r *http.Request) {
 	u, e := requireAuth(r)
 	if e != nil {
@@ -65,11 +88,19 @@ func (s *Server) predictionsPost(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, err)
 		return
 	}
-	var farm, crop, plantDate string
+	var farm, crop, plantDate, areaUnit, latText, lngText string
 	var area float64
-	var yieldMin, yieldMax, baseTemp, soilMin, soilMax float64
-	err := s.DB.QueryRow(r.Context(), `select p.farm_id::text,c.name,p.planting_date::text,p.planted_area::float,c.base_yield_min::float,c.base_yield_max::float,c.base_temp_c::float,c.soil_moisture_min::float,c.soil_moisture_max::float
-		from plantings p join crops c on c.id=p.crop_id where p.id=$1`, b.PlantingID).Scan(&farm, &crop, &plantDate, &area, &yieldMin, &yieldMax, &baseTemp, &soilMin, &soilMax)
+	var cropRule ruleCrop
+	err := s.DB.QueryRow(r.Context(), `select p.farm_id::text,c.name,p.planting_date::text,p.planted_area::float,p.area_unit::text,
+		f.latitude::text,f.longitude::text,c.base_yield_min::float,c.base_yield_max::float,c.yield_unit,
+		c.base_temp_c::float,c.temp_opt_min::float,c.temp_opt_max::float,c.temp_critical_low::float,c.temp_critical_high::float,
+		c.soil_moisture_min::float,c.soil_moisture_max::float,c.ph_min::float,c.ph_max::float,
+		c.water_need_min_mm,c.water_need_max_mm,c.gdd_to_maturity::float,c.maturity_days_min::float,c.maturity_days_max::float
+		from plantings p join crops c on c.id=p.crop_id join farms f on f.id=p.farm_id where p.id=$1`, b.PlantingID).
+		Scan(&farm, &crop, &plantDate, &area, &areaUnit, &latText, &lngText, &cropRule.YieldMin, &cropRule.YieldMax, &cropRule.YieldUnit,
+			&cropRule.BaseTemp, &cropRule.TempOptMin, &cropRule.TempOptMax, &cropRule.TempCriticalLow, &cropRule.TempCriticalHigh,
+			&cropRule.SoilMin, &cropRule.SoilMax, &cropRule.PHMin, &cropRule.PHMax,
+			&cropRule.WaterNeedMin, &cropRule.WaterNeedMax, &cropRule.GDD, &cropRule.MaturityMin, &cropRule.MaturityMax)
 	if err != nil {
 		Error(w, r, notFound(""))
 		return
@@ -78,24 +109,67 @@ func (s *Server) predictionsPost(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, e)
 		return
 	}
-	totalMin := yieldMin * area
-	totalMax := yieldMax * area
-	hstart := time.Now().AddDate(0, 3, 0).Format("2006-01-02")
-	hend := time.Now().AddDate(0, 5, 0).Format("2006-01-02")
+	areaHa := area
+	switch strings.ToLower(areaUnit) {
+	case "acres":
+		areaHa *= 0.40468564224
+	case "square_meters", "square metres", "m2":
+		areaHa /= 10000
+	}
+	lat, _ := strconv.ParseFloat(latText, 64)
+	lng, _ := strconv.ParseFloat(lngText, 64)
+
+	weather, weatherErr := s.weatherForecast(lat, lng)
+	soil, soilErr := s.soilProfile(lat, lng)
+	sensors := s.recentSensorAverages(r.Context(), farm)
+	result := evaluateRules(cropRule, plantDate, areaHa, weather, soil, sensors)
+
+	conditionsJSON, _ := json.Marshal(result.Conditions)
+	factorsJSON, _ := json.Marshal(result.Factors)
+	suitabilityJSON, _ := json.Marshal(result.Suitability)
+	advisoriesJSON, _ := json.Marshal(result.Advisories)
+	limitationsJSON, _ := json.Marshal(result.Limitations)
+	snapshotJSON, _ := json.Marshal(map[string]interface{}{"crop": cropRule, "plantingDate": plantDate, "areaHa": areaHa, "weather": weather, "soil": soil, "sensorAverages": sensors})
+	sourcesList := []map[string]interface{}{
+		{"name": "Crop catalogue", "type": "database", "retrievedAt": time.Now()},
+		{"name": "Rule engine", "type": "rules", "version": "agrisense-rules-1.1.0"},
+	}
+	if weatherErr == nil {
+		sourcesList = append(sourcesList, map[string]interface{}{"name": "Open-Meteo forecast", "type": "weather", "retrievedAt": time.Now()})
+	}
+	if soilErr == nil {
+		sourcesList = append(sourcesList, map[string]interface{}{"name": "ISRIC SoilGrids", "type": "soil", "retrievedAt": time.Now()})
+	}
+	if len(sensors) > 0 {
+		sourcesList = append(sourcesList, map[string]interface{}{"name": "IoT sensor readings (7-day mean)", "type": "measured", "retrievedAt": time.Now()})
+	}
+	sourcesJSON, _ := json.Marshal(map[string]interface{}{"sources": sourcesList})
+
+	totalMin := result.YieldMin * areaHa
+	totalMax := result.YieldMax * areaHa
 	var id string
 	err = s.DB.QueryRow(r.Context(), `insert into predictions(farm_id,planting_id,user_id,crop_name,yield_min,yield_max,yield_unit,total_min,total_max,total_unit,harvest_start,harvest_end,data_quality_score,method_version,conditions_summary,factors,suitability,advisories,limitations)
-		values($1,$2,$3,$4,$5,$6,'t/ha',$7,$8,'t',$9,$10,70,'agrisense-rules-1.0.0','{}','[]','{"verdict":"marginal","score":50,"explanation":"Rule-based estimate"}','[]','["Weather and soil providers may limit confidence"]') returning id::text`,
-		farm, b.PlantingID, u.ID, crop, yieldMin, yieldMax, totalMin, totalMax, hstart, hend).Scan(&id)
+		values($1,$2,$3,$4,$5,$6,$7,$8,$9,'t',$10,$11,$12,'agrisense-rules-1.1.0',$13,$14,$15,$16,$17) returning id::text`,
+		farm, b.PlantingID, u.ID, crop, fmtFloat(result.YieldMin), fmtFloat(result.YieldMax), cropRule.YieldUnit,
+		fmtFloat(totalMin), fmtFloat(totalMax), result.HarvestStart, result.HarvestEnd, result.Quality,
+		string(conditionsJSON), string(factorsJSON), string(suitabilityJSON), string(advisoriesJSON), string(limitationsJSON)).Scan(&id)
 	if err != nil {
 		Error(w, r, err)
 		return
+	}
+	_, _ = s.DB.Exec(r.Context(), `insert into prediction_inputs(prediction_id,snapshot,sources) values($1,$2,$3)`, id, string(snapshotJSON), string(sourcesJSON))
+	for _, risk := range result.Risks {
+		_, _ = s.DB.Exec(r.Context(), `insert into prediction_risks(prediction_id,category,severity,explanation) values($1,$2,$3,$4)`, id, risk.Category, risk.Severity, risk.Explanation)
+	}
+	if err := s.evaluateFarmRules(r.Context(), farm, lat, lng); err != nil {
+		log.Printf("[rules] farm %s refresh after prediction failed: %v", farm, err)
 	}
 	p, err := s.predictionJSON(r.Context(), id)
 	if err != nil {
 		Error(w, r, err)
 		return
 	}
-	JSON(w, map[string]interface{}{"prediction": predictionDetail(p, 70)}, 201)
+	JSON(w, map[string]interface{}{"prediction": predictionDetail(p, result.Quality)}, 201)
 }
 func (s *Server) predictionJSON(ctx context.Context, id string) (map[string]interface{}, error) {
 	var raw []byte

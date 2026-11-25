@@ -54,6 +54,12 @@ func (s *Server) farmResourceGet(w http.ResponseWriter, r *http.Request) {
 		}
 		JSON(w, h, 200)
 	case "risks":
+		if r.URL.Query().Get("refresh") == "1" {
+			if err := s.evaluateFarmRules(r.Context(), fid, lat, lng); err != nil {
+				Error(w, r, err)
+				return
+			}
+		}
 		rows, err := s.DB.Query(r.Context(), `select id::text,farm_id::text,planting_id::text,category,severity::text,title,explanation,source,dedupe_key,active,detected_at,last_seen_at,resolved_at from farm_risks where farm_id=$1 order by detected_at desc limit 200`, fid)
 		if err != nil {
 			Error(w, r, err)
@@ -319,15 +325,33 @@ func (s *Server) weatherHistory(lat, lng float64, days int) (interface{}, error)
 	return normalizeWeather(body, "Open-Meteo archive (ERA5)", time.Now(), false, false)
 }
 
+// soilAPIRow converts cached database rows to the camelCase response contract
+// used by fresh provider responses and by the frontend/report components.
+func soilAPIRow(raw []byte) map[string]interface{} {
+	m := map[string]interface{}{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return m
+	}
+	for from, to := range map[string]string{
+		"ph_h2o": "phH2o", "organic_carbon_g_kg": "organicCarbonGKg", "nitrogen_g_kg": "nitrogenGKg",
+		"sand_pct": "sandPct", "silt_pct": "siltPct", "clay_pct": "clayPct",
+		"retrieved_at": "retrievedAt", "expires_at": "expiresAt", "cache_key": "cacheKey",
+	} {
+		if value, ok := m[from]; ok {
+			m[to] = value
+			delete(m, from)
+		}
+	}
+	return m
+}
+
 func (s *Server) soilProfile(lat, lng float64) (interface{}, error) {
 	key := fmt.Sprintf("soil:%.3f:%.3f", lat, lng)
 	var raw []byte
 	var expires time.Time
 	err := s.DB.QueryRow(context.Background(), `select row_to_json(s)::text,expires_at from soil_profiles s where cache_key=$1`, key).Scan(&raw, &expires)
 	if err == nil && expires.After(time.Now()) {
-		var v interface{}
-		json.Unmarshal(raw, &v)
-		return map[string]interface{}{"soil": v, "provider": "ISRIC SoilGrids v2.0", "dataType": "modelled", "license": "CC BY 4.0", "stale": false}, nil
+		return map[string]interface{}{"soil": soilAPIRow(raw), "provider": "ISRIC SoilGrids v2.0", "dataType": "modelled", "license": "CC BY 4.0", "stale": false}, nil
 	}
 	params := url.Values{"lon": {fmt.Sprintf("%.4f", lng)}, "lat": {fmt.Sprintf("%.4f", lat)}, "value": {"mean"}}
 	for _, p := range []string{"phh2o", "soc", "nitrogen", "sand", "silt", "clay"} {
@@ -339,9 +363,7 @@ func (s *Server) soilProfile(lat, lng float64) (interface{}, error) {
 	resp, e := http.Get("https://rest.isric.org/soilgrids/v2.0/properties/query?" + params.Encode())
 	if e != nil {
 		if err == nil {
-			var v interface{}
-			json.Unmarshal(raw, &v)
-			return map[string]interface{}{"soil": v, "provider": "ISRIC SoilGrids v2.0", "stale": true}, nil
+			return map[string]interface{}{"soil": soilAPIRow(raw), "provider": "ISRIC SoilGrids v2.0", "dataType": "modelled", "license": "CC BY 4.0", "stale": true}, nil
 		}
 		return nil, e
 	}

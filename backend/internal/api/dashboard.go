@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 )
@@ -74,35 +73,47 @@ func (s *Server) dashboardGet(w http.ResponseWriter, r *http.Request) {
 			online++
 		}
 	}
-	predRows, _ := s.DB.Query(r.Context(), `select row_to_json(p)::text from predictions p where farm_id=$1 order by created_at desc limit 5`, selected)
+	predRows, _ := s.DB.Query(r.Context(), `select id::text,crop_name,yield_min::text,yield_max::text,yield_unit,total_min::text,total_max::text,total_unit,harvest_start::text,harvest_end::text,data_quality_score,method_version,created_at from predictions where farm_id=$1 order by created_at desc limit 5`, selected)
 	defer predRows.Close()
 	preds := []interface{}{}
 	for predRows.Next() {
-		var raw []byte
-		predRows.Scan(&raw)
-		var m interface{}
-		json.Unmarshal(raw, &m)
-		preds = append(preds, m)
+		var id, crop, ymin, ymax, yunit, tmin, tmax, tunit, hstart, hend, method string
+		var quality int
+		var created time.Time
+		if predRows.Scan(&id, &crop, &ymin, &ymax, &yunit, &tmin, &tmax, &tunit, &hstart, &hend, &quality, &method, &created) == nil {
+			preds = append(preds, map[string]interface{}{
+				"id": id, "cropName": crop, "yieldMin": ymin, "yieldMax": ymax, "yieldUnit": yunit,
+				"totalMin": tmin, "totalMax": tmax, "totalUnit": tunit,
+				"harvestStart": hstart, "harvestEnd": hend, "dataQualityScore": quality,
+				"methodVersion": method, "createdAt": created,
+			})
+		}
 	}
-	riskRows, _ := s.DB.Query(r.Context(), `select row_to_json(r)::text from farm_risks r where farm_id=$1 and active=true order by detected_at desc limit 10`, selected)
+	riskRows, _ := s.DB.Query(r.Context(), `select id::text,category,severity::text,title,explanation,source,active,detected_at,last_seen_at,resolved_at from farm_risks where farm_id=$1 and active=true order by detected_at desc limit 10`, selected)
 	defer riskRows.Close()
 	rOut := []interface{}{}
 	for riskRows.Next() {
-		var raw []byte
-		riskRows.Scan(&raw)
-		var m interface{}
-		json.Unmarshal(raw, &m)
-		rOut = append(rOut, m)
+		var id, category, severity, title, explanation, source string
+		var active bool
+		var detected, lastSeen time.Time
+		var resolved interface{}
+		if riskRows.Scan(&id, &category, &severity, &title, &explanation, &source, &active, &detected, &lastSeen, &resolved) == nil {
+			rOut = append(rOut, map[string]interface{}{
+				"id": id, "category": category, "severity": severity, "title": title,
+				"explanation": explanation, "source": source, "active": active,
+				"detectedAt": detected, "lastSeenAt": lastSeen, "resolvedAt": resolved,
+			})
+		}
 	}
-	actRows, _ := s.DB.Query(r.Context(), `select row_to_json(a)::text from farm_activities a where farm_id=$1 order by occurred_at desc limit 8`, selected)
+	actRows, _ := s.DB.Query(r.Context(), `select id::text,type,description,occurred_at from farm_activities where farm_id=$1 order by occurred_at desc limit 8`, selected)
 	defer actRows.Close()
 	aOut := []interface{}{}
 	for actRows.Next() {
-		var raw []byte
-		actRows.Scan(&raw)
-		var m interface{}
-		json.Unmarshal(raw, &m)
-		aOut = append(aOut, m)
+		var id, typ, description string
+		var occurred time.Time
+		if actRows.Scan(&id, &typ, &description, &occurred) == nil {
+			aOut = append(aOut, map[string]interface{}{"id": id, "type": typ, "description": description, "occurredAt": occurred})
+		}
 	}
 	JSON(w, map[string]interface{}{"farms": farms, "selectedFarmId": selected, "totals": map[string]int{"farms": len(farms), "activePlantings": activePlantings, "devices": devices, "devicesOnline": online, "activeRisks": risks, "unread": unread}, "selected": map[string]interface{}{"farm": selectedFarm, "plantings": plantings, "predictions": preds, "risks": rOut, "activities": aOut, "latestReadings": s.latestReadings(r, selected), "devices": dOut}}, 200)
 }

@@ -211,6 +211,9 @@ export const SENSOR_LABELS: Record<string, { label: string; unit: string; icon: 
   air_humidity: { label: "Air humidity", unit: "%RH", icon: "☁️" },
   soil_temperature: { label: "Soil temperature", unit: "°C", icon: "🌱" },
   soil_ph: { label: "Soil pH", unit: "pH", icon: "⚗️" },
+  soil_n: { label: "Soil nitrogen (N)", unit: "mg/kg", icon: "🧪" },
+  soil_p: { label: "Soil phosphorus (P)", unit: "mg/kg", icon: "🧪" },
+  soil_k: { label: "Soil potassium (K)", unit: "mg/kg", icon: "🧪" },
 };
 export const RISK_LABELS: Record<string, string> = {
   drought: "Drought",
@@ -220,5 +223,6 @@ export const RISK_LABELS: Record<string, string> = {
   cold_stress: "Cold stress",
   soil_moisture: "Soil moisture",
   soil_ph: "Soil pH",
+  soil_nutrients: "Soil nutrients",
   season_disruption: "Season disruption",
 };

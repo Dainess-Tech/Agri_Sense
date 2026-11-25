@@ -7,7 +7,11 @@ import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Selec
 interface Device { id: string; name: string; deviceUid: string; farmId: string; farmName?: string; status: string; lastSeenAt: string | null; intervalSec: number; sensors: string[]; hardware: string; firmwareVersion: string | null; active: boolean }
 interface ReadingRow { id: string; sensorType: string; value: string; unit: string; quality: string; qualityNote: string | null; measuredAt: string; receivedAt: string; messageId: string }
 
-const ALL_SENSORS = ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph"];
+const ALL_SENSORS = ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph", "soil_n", "soil_p", "soil_k"];
+
+function isSimulatedDevice(device: Device) {
+  return /simulat|demo/i.test(`${device.name} ${device.hardware} ${device.firmwareVersion ?? ""}`);
+}
 
 function CredentialPanel({ device, apiKey, onClose }: { device: Device; apiKey: string; onClose: () => void }) {
   const [sim, setSim] = useState<string | null>(null);
@@ -31,7 +35,7 @@ function CredentialPanel({ device, apiKey, onClose }: { device: Device; apiKey: 
   const firmware = `#define DEVICE_ID        "${device.deviceUid}"\n#define MQTT_TOPIC       "agrisense/devices/${device.deviceUid}/readings"\n#define INTERVAL_SEC     ${device.intervalSec}`;
   return (
     <Card title={`🔑 Credentials for ${device.name}`} className="border-amber-300 bg-amber-50/40" action={<Button size="sm" variant="secondary" onClick={onClose}>Done</Button>}>
-      <Alert tone="warning">Copy this API key now — it is shown only once and stored hashed. You can rotate it later if lost.</Alert>
+      <Alert tone="warning">Copy this API key now — it is shown only once and stored hashed. You can rotate it later if lost. {isSimulatedDevice(device) && "This is a simulated demo node; it uses the same ingestion API as real ESP32 firmware."}</Alert>
       <div className="mt-3 space-y-3 text-sm">
         <div><p className="font-semibold">Device ID</p><code className="block break-all rounded-lg bg-white p-2">{device.deviceUid}</code></div>
         <div><p className="font-semibold">API key</p><code className="block break-all rounded-lg bg-white p-2">{apiKey}</code></div>
@@ -189,7 +193,7 @@ export default function DevicesPage() {
                 <div>
                   <p className="flex items-center gap-2 font-semibold text-stone-900">
                     <span className={cx("inline-block h-2.5 w-2.5 rounded-full", d.status === "online" ? "bg-leaf-500" : d.status === "offline" ? "bg-red-500" : "bg-stone-300")} aria-hidden />
-                    {d.name} {!d.active && <Badge tone="amber">Deactivated</Badge>}
+                    {d.name} {isSimulatedDevice(d) && <Badge tone="amber">SIMULATED DEMO</Badge>} {!d.active && <Badge tone="amber">Deactivated</Badge>}
                   </p>
                   <p className="text-xs text-stone-500">{d.deviceUid} · {d.hardware}{d.firmwareVersion ? ` · fw ${d.firmwareVersion}` : ""} · {d.farmName}</p>
                   <p className="mt-1 text-sm">{d.status === "never" ? "Waiting for first measurement" : <>Last seen {timeAgo(d.lastSeenAt)} <span className="text-stone-500">({fmtDateTime(d.lastSeenAt)})</span></>} · <Badge tone={d.status === "online" ? "green" : d.status === "offline" ? "red" : "stone"}>{d.status}</Badge></p>

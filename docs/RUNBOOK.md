@@ -69,6 +69,54 @@ Open **http://localhost:3000**.
 
 ---
 
+## 1b. Exhibition demo without hardware
+
+Use this when you need a full, realistic-looking farm demonstration tomorrow but
+do not have the ESP32 wired up. The seeder creates a **clearly labelled
+simulated node**. It sends readings through the same
+`POST /api/v1/iot/readings` endpoint used by the real firmware, so the API,
+validation, charts, rule engine, notifications and reports are all genuinely
+working. Do **not** present these values as physical sensor measurements; say
+“this node is simulated; it uses the same ingestion path as the hardware.”
+
+```bash
+npm run demo:seed          # one-off realistic 72-hour backfill + predictions + risks
+npm run demo:live          # same, then streams new simulated readings for 10 minutes
+```
+
+Demo login:
+
+```text
+exhibition.demo@agrisense.local
+AgriSense2026!
+```
+
+What you get:
+
+- Farm: **Nairobi Exhibition Farm** (Nairobi County, Kenya)
+- Plantings: maize (42 days old) and beans (24 days old)
+- One device: **North field demo station (SIMULATED DEMO)**, UID `demo-nairobi-node-01`
+- 15-minute readings for 72 hours: soil moisture, air temperature/humidity,
+  soil temperature, pH and **NPK** (nitrogen, phosphorus, potassium)
+- Farm activities, rule-based predictions, active risks, recommendations and
+  in-app notifications
+- Weather and SoilGrids snapshots cached for the demo farm when the providers
+  are reachable
+
+Where to show it:
+
+1. `/devices` — the node is marked **SIMULATED DEMO** and shows `fw demo-simulator-1.0`.
+2. `/monitoring` — warning notice plus live charts and NPK values.
+3. `/predictions` — open a prediction to see suitability, advisories, factors, data quality and limitations.
+4. Farm detail → **Risks** → **Re-evaluate now** — the rule engine refreshes risks, recommendations and notifications.
+5. `/reports` — printable report and CSV exports include the simulated data.
+
+The seeder is idempotent: running it again reuses the farm and plantings,
+rotates the demo API key, skips duplicate message IDs, and refreshes predictions
+and rules.
+
+---
+
 ## 2. Accounts, first admin, login
 
 1. Open `/auth/register` (landing page: **Get started** / **Create free account**).
@@ -294,7 +342,7 @@ curl -s -b "$JAR" "$BASE/api/v1/farms/$FARM_ID/predictions"
 
 The detail response includes `yieldMin`/`yieldMax`, `totalMin`/`totalMax`, `harvestStart`/`harvestEnd`, `conditionsSummary`, `factors`, `suitability`, `advisories`, `limitations`, `risks`, and the immutable `inputs` snapshot. Limit: 20 predictions per user per hour.
 
-> The Go generator currently writes a conservative rule-based baseline (`suitability.verdict: "marginal"`, score `50`) and an empty advisory list. The storage and response contract for real advisories is in place; extending the agronomic scoring lives in `backend/internal/api/predictions.go` and `src/modules/prediction-engine/engine.ts`.
+> `methodVersion` is `agrisense-rules-1.1.0`. The explainable engine scores temperature, rainfall, soil moisture, SoilGrids pH and optional NPK probes with transparent weights, then derives suitability, yield adjustment, advisories and limitations. If a provider is unavailable, that component is marked unavailable in `conditionsSummary.dataQuality.components` instead of being silently guessed. Engine code: `backend/internal/api/rule_engine.go`.
 
 ---
 
@@ -310,25 +358,18 @@ curl -s -b "$JAR" -X PATCH -H 'Content-Type: application/json' \
   -d '{"status":"completed"}' "$BASE/api/v1/recommendations/RECOMMENDATION_ID"
 ```
 
-The current Go API reads and updates risks/recommendations but does not yet run an automatic background evaluator. The **Re-evaluate now** button currently reloads the list (`refresh=1` is accepted but does not trigger evaluation). To populate a realistic demo, insert one row directly:
+**Re-evaluate now** is live: `refresh=1` runs `agrisense-rules-1.1.0`. It reads
+the active plantings, weather forecast, SoilGrids profile and the last 7 days
+of valid sensor readings, then upserts deduplicated `farm_risks`, matching
+`recommendations` and in-app `notifications`. Stale risks are resolved
+automatically. There is no background scheduler, so click **Re-evaluate now**
+after new readings arrive (or generate a prediction, which also refreshes the
+farm).
 
 ```bash
-psql -h 127.0.0.1 -p 5433 -U postgres -d app_db \
-  -v farm_id="$FARM_ID" -v planting_id="$PLANTING_ID" <<'SQL'
-insert into farm_risks
-  (farm_id, planting_id, category, severity, title, explanation, source, dedupe_key)
-values
-  (:'farm_id', :'planting_id', 'soil_moisture', 'medium', 'Low soil moisture',
-   'Recent probes are below the crop comfort band.', 'sensor', 'demo-low-moisture')
-on conflict (dedupe_key) where active do nothing;
-
-insert into recommendations
-  (farm_id, planting_id, title, body, reason, severity)
-values
-  (:'farm_id', :'planting_id', 'Check irrigation schedule',
-   'Inspect the moisture probe and irrigate if the reading persists.',
-   'Low soil moisture risk detected.', 'medium');
-SQL
+curl -s -b "$JAR" "$BASE/api/v1/farms/$FARM_ID/risks?refresh=1"
+curl -s -b "$JAR" "$BASE/api/v1/farms/$FARM_ID/recommendations"
+curl -s -b "$JAR" "$BASE/api/v1/notifications"
 ```
 
 ---

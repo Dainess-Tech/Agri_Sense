@@ -33,6 +33,7 @@ agrisense/
 ├── iotcode/                   # ESP32 MQTT firmware for HiveMQ
 ├── public/                    # sw.js (service worker), icons, images
 ├── scripts/simulate-device.mjs      # ESP32 simulator for demos without hardware
+├── scripts/seed-exhibition-demo.mjs # labelled demo account, farm, plantings and readings
 ├── backend/                   # Go API, PostgreSQL access and endpoint handlers
 └── src/
     ├── app/
@@ -70,6 +71,15 @@ Run the API and frontend in separate terminals:
 npm run dev:api           # Go API on :3001
 npm run dev               # Next.js frontend and API proxy on :3000
 ```
+
+For an exhibition or interview demo without hardware, run:
+
+```bash
+npm run demo:seed         # creates a clearly labelled simulated node + realistic readings
+npm run demo:live         # same, then streams live simulated readings for 10 minutes
+```
+
+The demo seeder signs in as `exhibition.demo@agrisense.local` / `AgriSense2026!` and creates a farm, plantings, NPK readings, rule-based predictions, risks and recommendations. The UI labels the node **SIMULATED DEMO**; readings go through the same `/api/v1/iot/readings` endpoint as the ESP32 firmware. See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full walkthrough.
 
 Production-style run:
 

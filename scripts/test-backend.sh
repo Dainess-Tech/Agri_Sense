@@ -89,6 +89,11 @@ else
   echo "FAIL: no prediction id"; FAIL=$((FAIL+1))
 fi
 
+echo "=== Rule-based risk evaluation ==="
+check "refresh farm risks" 200 "$(api GET "/api/v1/farms/$FARM_ID/risks?refresh=1" $C1)"
+grep -q '"risks"' /tmp/resp-$TS.json && { echo "PASS: risk list returned"; PASS=$((PASS+1)); } || { echo "FAIL: risk list missing"; FAIL=$((FAIL+1)); }
+check "list recommendations" 200 "$(api GET "/api/v1/farms/$FARM_ID/recommendations" $C1)"
+
 echo "=== Maintenance ==="
 check "POST retention" 200 "$(api POST /api/v1/admin/maintenance $C1 '{"action":"retention","readingsDays":365}')"
 grep -q '"deleted"' /tmp/resp-$TS.json && { echo "PASS: retention counts"; PASS=$((PASS+1)); } || { echo "FAIL: retention counts body=$(body)"; FAIL=$((FAIL+1)); }

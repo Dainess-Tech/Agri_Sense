@@ -48,7 +48,7 @@ Status codes: 200 OK · 201 Created · 204 No Content · 400 Bad request · 401 
 | DELETE | `/farms/{id}/members?userId=` | revoke shared access; owner/admin only |
 | GET | `/farms/{id}/weather` | Open-Meteo: `current`, `daily[]` (14 past days `kind:"model"`, 16 forecast days `kind:"forecast"`), `provider`, `retrievedAt`, `cached`, `stale`; `?historyDays=N` (≤365) → ERA5 archive; 503 if provider down & no cache |
 | GET | `/farms/{id}/soil` | SoilGrids (modelled, 0–15 cm): pH, organic carbon g/kg, nitrogen g/kg, sand/silt/clay %, texture, `available`, `stale` (true when served from expired cache because the provider was unreachable) |
-| GET | `/farms/{id}/risks?history=1&refresh=1` | active (or all) risks; `refresh=1` forces evaluation |
+| GET | `/farms/{id}/risks?history=1&refresh=1` | active (or all) risks; `refresh=1` runs `agrisense-rules-1.1.0` over active plantings using weather, soil and 7-day sensor averages, then upserts risks, recommendations and notifications |
 | GET | `/farms/{id}/recommendations?status=new\|read\|completed` | |
 | GET/POST | `/farms/{id}/activities` | POST `{ type, description, plantingId?, occurredAt? }`; GET paginated |
 | GET | `/farms/{id}/readings` | latest per sensor type (incl. quality) |

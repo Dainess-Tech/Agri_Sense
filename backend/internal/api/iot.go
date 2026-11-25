@@ -171,7 +171,11 @@ func (s *Server) ingestIoT(ctx context.Context, deviceID, farmID string, interva
 			}
 		}
 	}
-	if _, err := s.DB.Exec(ctx, `update iot_devices set last_seen_at=$1,firmware_version=coalesce(nullif($2,''),firmware_version) where id=$3`, now, payload.Firmware, deviceID); err != nil {
+	firmware := payload.Firmware
+	if len(firmware) > 32 {
+		firmware = firmware[:32]
+	}
+	if _, err := s.DB.Exec(ctx, `update iot_devices set last_seen_at=$1,firmware_version=coalesce(nullif($2,''),firmware_version) where id=$3`, now, firmware, deviceID); err != nil {
 		return nil, 0, err
 	}
 	if payload.Log != "" {

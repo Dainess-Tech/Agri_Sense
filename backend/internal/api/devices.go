@@ -1,12 +1,38 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// deviceSensors normalises jsonb sensors (returned as text by the query) into
+// the array shape expected by the UI and API clients.
+func deviceSensors(raw interface{}) []string {
+	out := []string{}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case string:
+		if err := json.Unmarshal([]byte(v), &out); err != nil {
+			return []string{}
+		}
+	case []byte:
+		if err := json.Unmarshal(v, &out); err != nil {
+			return []string{}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
 
 func deviceStatus(last *time.Time, interval int) string {
 	if last == nil {
@@ -38,17 +64,17 @@ func (s *Server) devicesGet(w http.ResponseWriter, r *http.Request) {
 	fid := r.URL.Query().Get("farmId")
 	var rowsPG interface{ Close() }
 	_ = rowsPG
-	query := `select id::text,farm_id::text,name,device_uid,hardware,sensors::text,interval_sec,last_seen_at,active,firmware_version,created_at from iot_devices where 1=1`
+	query := `select d.id::text,d.farm_id::text,d.name,d.device_uid,d.hardware,d.sensors::text,d.interval_sec,d.last_seen_at,d.active,d.firmware_version,d.created_at,f.name from iot_devices d join farms f on f.id=d.farm_id where 1=1`
 	args := []interface{}{}
 	if fid != "" {
 		if _, e = s.getFarmForUser(r.Context(), u, fid, "read"); e != nil {
 			Error(w, r, e)
 			return
 		}
-		query += " and farm_id=$1"
+		query += " and d.farm_id=$1"
 		args = append(args, fid)
 	} else {
-		query += " and farm_id in (select id from farms where owner_id=$1 or id in (select farm_id from farm_members where user_id=$1))"
+		query += " and d.farm_id in (select id from farms where owner_id=$1 or id in (select farm_id from farm_members where user_id=$1))"
 		args = append(args, u.ID)
 	}
 	rows, err := s.DB.Query(r.Context(), query, args...)
@@ -59,18 +85,18 @@ func (s *Server) devicesGet(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []interface{}{}
 	for rows.Next() {
-		var id, farm, name, uid, hardware string
+		var id, farm, name, uid, hardware, farmName string
 		var interval int
 		var last *time.Time
 		var active bool
 		var firmware interface{}
 		var created time.Time
 		var sensorsRaw interface{}
-		if err := rows.Scan(&id, &farm, &name, &uid, &hardware, &sensorsRaw, &interval, &last, &active, &firmware, &created); err != nil {
+		if err := rows.Scan(&id, &farm, &name, &uid, &hardware, &sensorsRaw, &interval, &last, &active, &firmware, &created, &farmName); err != nil {
 			continue
 		}
 		status := deviceStatus(last, interval)
-		out = append(out, map[string]interface{}{"id": id, "farmId": farm, "name": name, "deviceUid": uid, "hardware": hardware, "sensors": sensorsRaw, "intervalSec": interval, "lastSeenAt": last, "active": active, "firmwareVersion": firmware, "createdAt": created, "status": status})
+		out = append(out, map[string]interface{}{"id": id, "farmId": farm, "name": name, "deviceUid": uid, "hardware": hardware, "sensors": deviceSensors(sensorsRaw), "intervalSec": interval, "lastSeenAt": last, "active": active, "firmwareVersion": firmware, "createdAt": created, "status": status, "farmName": farmName})
 	}
 	JSON(w, map[string]interface{}{"devices": out}, 200)
 }

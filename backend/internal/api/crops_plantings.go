@@ -165,6 +165,17 @@ func (s *Server) plantingJSON(ctx context.Context, id string) (map[string]interf
 	if err = json.Unmarshal(raw, &m); err != nil {
 		return nil, err
 	}
+	for from, to := range map[string]string{
+		"farm_id": "farmId", "crop_id": "cropId", "variety_id": "varietyId",
+		"planting_date": "plantingDate", "planted_area": "plantedArea", "area_unit": "areaUnit",
+		"actual_harvest_date": "actualHarvestDate", "actual_yield": "actualYield", "actual_yield_unit": "actualYieldUnit",
+		"client_id": "clientId", "created_at": "createdAt", "updated_at": "updatedAt",
+	} {
+		if value, ok := m[from]; ok {
+			m[to] = value
+			delete(m, from)
+		}
+	}
 	return m, nil
 }
 func (s *Server) plantingGet(w http.ResponseWriter, r *http.Request) {
