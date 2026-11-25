@@ -320,7 +320,7 @@ func evaluateRules(crop ruleCrop, plantingDate string, area float64, weather, so
 	if len(nutrientNotes) == 0 {
 		limitations = append(limitations, "NPK probes are optional; nutrient suitability was not scored.")
 	}
-	limitations = append(limitations, "Rule-based decision support; not a calibrated crop model or trained ML forecast.")
+	limitations = append(limitations, "Rule-based decision support using configured crop thresholds and current field inputs.")
 
 	// Yield adjustment: good conditions approach the crop's attainable yield;
 	// poor or missing conditions widen the range and pull it down.
