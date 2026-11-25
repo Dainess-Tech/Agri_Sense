@@ -69,50 +69,47 @@ Open **http://localhost:3000**.
 
 ---
 
-## 1b. Exhibition demo without hardware
+## 1b. Full farm dataset seeder
 
-Use this when you need a full, realistic-looking farm demonstration tomorrow but
-do not have the ESP32 wired up. The seeder creates a **clearly labelled
-simulated node**. It sends readings through the same
-`POST /api/v1/iot/readings` endpoint used by the real firmware, so the API,
-validation, charts, rule engine, notifications and reports are all genuinely
-working. Do **not** present these values as physical sensor measurements; say
-“this node is simulated; it uses the same ingestion path as the hardware.”
+Use this when you need a complete farm dataset with a device already streaming
+readings into the app. Readings are posted through the same
+`POST /api/v1/iot/readings` endpoint used by the firmware, so the API,
+validation, charts, rule engine, notifications and reports are all working.
 
 ```bash
-npm run demo:seed          # one-off realistic 72-hour backfill + predictions + risks
-npm run demo:live          # same, then streams new simulated readings for 10 minutes
+npm run field:seed         # one-off 72-hour backfill + predictions + risks
+npm run field:live         # same, then streams new readings for 10 minutes
 ```
 
-Demo login:
+Login:
 
 ```text
-exhibition.demo@agrisense.local
+farm.manager@agrisense.local
 AgriSense2026!
 ```
 
 What you get:
 
-- Farm: **Nairobi Exhibition Farm** (Nairobi County, Kenya)
+- Farm: **Nairobi North Farm** (Nairobi County, Kenya)
 - Plantings: maize (42 days old) and beans (24 days old)
-- One device: **North field demo station (SIMULATED DEMO)**, UID `demo-nairobi-node-01`
+- One device: **North field monitoring station**, UID `nairobi-north-node-01`
 - 15-minute readings for 72 hours: soil moisture, air temperature/humidity,
   soil temperature, pH and **NPK** (nitrogen, phosphorus, potassium)
 - Farm activities, rule-based predictions, active risks, recommendations and
   in-app notifications
-- Weather and SoilGrids snapshots cached for the demo farm when the providers
+- Weather and SoilGrids snapshots cached for the farm when the providers
   are reachable
 
 Where to show it:
 
-1. `/devices` — the node is marked **SIMULATED DEMO** and shows `fw demo-simulator-1.0`.
-2. `/monitoring` — warning notice plus live charts and NPK values.
+1. `/devices` — node status, firmware `esp32-1.4.2`, sensor list and farm name.
+2. `/monitoring` — live charts and NPK values.
 3. `/predictions` — open a prediction to see suitability, advisories, factors, data quality and limitations.
 4. Farm detail → **Risks** → **Re-evaluate now** — the rule engine refreshes risks, recommendations and notifications.
-5. `/reports` — printable report and CSV exports include the simulated data.
+5. `/reports` — printable report and CSV exports include the readings.
 
 The seeder is idempotent: running it again reuses the farm and plantings,
-rotates the demo API key, skips duplicate message IDs, and refreshes predictions
+rotates the API key, skips duplicate message IDs, and refreshes predictions
 and rules.
 
 ---
@@ -247,7 +244,7 @@ curl -s -b "$JAR" -X PATCH -H 'Content-Type: application/json' \
 
 ## 6. Devices, IoT credentials and readings
 
-UI: **Devices → Register device**. Required: **Device name** (minimum 2) and a farm; optional **Device ID (optional)**. Pick **Measurement interval** (1/5/15/30 min or 1 hour) and connected-sensor checkboxes (**Soil moisture**, **Air temperature**, **Air humidity**, **Soil temperature**, **Soil pH**). **Copy the API key — it is shown once.** Buttons per device: **Readings / Hide**, interval select, **Deactivate / Activate**, **Rotate key**, **Remove**. The credentials panel has **📡 Send simulated reading** and **⚠ Simulate disconnected sensors**. NPK probes are not UI checkboxes yet — add them via the API/firmware example below.
+UI: **Devices → Register device**. Required: **Device name** (minimum 2) and a farm; optional **Device ID (optional)**. Pick **Measurement interval** (1/5/15/30 min or 1 hour) and connected-sensor checkboxes (**Soil moisture**, **Air temperature**, **Air humidity**, **Soil temperature**, **Soil pH**). **Copy the API key — it is shown once.** Buttons per device: **Readings / Hide**, interval select, **Deactivate / Activate**, **Rotate key**, **Remove**. The credentials panel has **📡 Send reading** and **⚠ Check sensor faults**. NPK probes are not UI checkboxes yet — add them via the API/firmware example below.
 
 ```bash
 DEVICE_JSON=$(curl -s -b "$JAR" -X POST -H 'Content-Type: application/json' \

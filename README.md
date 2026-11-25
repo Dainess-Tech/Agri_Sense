@@ -72,14 +72,14 @@ npm run dev:api           # Go API on :3001
 npm run dev               # Next.js frontend and API proxy on :3000
 ```
 
-For an exhibition or interview demo without hardware, run:
+For a complete field dataset, run:
 
 ```bash
-npm run demo:seed         # creates a clearly labelled simulated node + realistic readings
-npm run demo:live         # same, then streams live simulated readings for 10 minutes
+npm run field:seed        # creates farm data, plantings, device and readings
+npm run field:live        # same, then streams new readings for 10 minutes
 ```
 
-The demo seeder signs in as `exhibition.demo@agrisense.local` / `AgriSense2026!` and creates a farm, plantings, NPK readings, rule-based predictions, risks and recommendations. The UI labels the node **SIMULATED DEMO**; readings go through the same `/api/v1/iot/readings` endpoint as the ESP32 firmware. See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full walkthrough.
+The seeder signs in as `farm.manager@agrisense.local` / `AgriSense2026!` and creates a farm, plantings, NPK readings, rule-based predictions, risks and recommendations. Readings go through the same `/api/v1/iot/readings` endpoint as the ESP32 firmware. See [`docs/RUNBOOK.md`](docs/RUNBOOK.md) for the full walkthrough.
 
 Production-style run:
 
@@ -110,7 +110,7 @@ DATABASE_URL=postgresql://user:password@127.0.0.1:5432/app_db
    and MQTT topic from the one-time credentials panel.
 4. Configure the MQTT bridge in `.env`, copy the ID/topic into the firmware,
    then flash it. Sensor readings appear in the serial monitor and refresh in
-   the app. For a demo, click **“Send simulated reading”** or run
+   the app. To post a reading manually, click **“Send reading”** or run
    `DEVICE_ID=as-xxxx DEVICE_API_KEY=ask_xxx BACKFILL_HOURS=48 node scripts/simulate-device.mjs`
 5. Dashboard / Monitoring show readings with timestamps, units and fault flags.
 6. **Predictions** → generate → see yield range, total production, harvest window, suitability verdict, advisories, risks, factors, data quality, limitations and the saved input snapshot.
