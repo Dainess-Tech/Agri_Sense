@@ -151,7 +151,6 @@ export default function SettingsPage() {
         </Card>
         <Card title="Your data">
           <p className="text-sm text-stone-600">Download everything AgriSense stores about you and your farms (JSON).</p>
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- This endpoint returns a file download. */}
           <a href="/api/v1/users/export" className="mt-3 inline-flex rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold hover:bg-stone-50">⬇ Export my data</a>
         </Card>
         <Card title="Delete account" className="border-red-200">

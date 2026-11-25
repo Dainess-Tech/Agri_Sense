@@ -67,6 +67,12 @@ func TestPredictionDetailProvidesFrontendFieldsAndSafeDefaults(t *testing.T) {
 		"yield_min":          "2.00",
 		"method_version":     "rules-1",
 		"data_quality_score": float64(70),
+		"suitability": map[string]interface{}{
+			"verdict":     "marginal",
+			"score":       float64(50),
+			"explanation": "Rule-based estimate",
+		},
+		"advisories": []interface{}{map[string]interface{}{"category": "water", "title": "Watch soil moisture"}},
 	}, 70)
 
 	if detail["cropName"] != "Maize" || detail["methodVersion"] != "rules-1" {
@@ -88,6 +94,14 @@ func TestPredictionDetailProvidesFrontendFieldsAndSafeDefaults(t *testing.T) {
 	}
 	if _, ok := detail["factors"].([]interface{}); !ok {
 		t.Fatalf("factors are not a list: %#v", detail["factors"])
+	}
+	suitability, ok := detail["suitability"].(map[string]interface{})
+	if !ok || suitability["verdict"] != "marginal" {
+		t.Fatalf("suitability was not translated to the frontend contract: %#v", detail["suitability"])
+	}
+	advisories, ok := detail["advisories"].([]interface{})
+	if !ok || len(advisories) != 1 {
+		t.Fatalf("advisories were not translated to the frontend contract: %#v", detail["advisories"])
 	}
 }
 

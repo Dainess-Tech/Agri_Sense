@@ -4,7 +4,7 @@ AgriSense is an installable **Progressive Web App** for agricultural intelligenc
 
 > It answers three questions for a farmer: *What is happening on my farm?* (monitoring) · *What is likely to happen to my crops?* (prediction) · *What should I pay attention to?* (intelligence).
 
-**New to the repo? Start with [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md)** — Ubuntu setup, cloning, pushing and the team branching workflow.
+**New to the repo? Start with [`docs/GIT_WORKFLOW.md`](docs/GIT_WORKFLOW.md)** — Ubuntu setup, cloning, pushing and the team branching workflow. To run and demo every feature, use [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 The active application uses Next.js for pages and a standalone Go service for backend APIs. Next.js proxies `/api/v1/*` and `/api/health` to the Go service. The earlier Vite starter remains in [`frontend/`](frontend) as a reference scaffold; it is not the app launched by the root-level commands below.
 

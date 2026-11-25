@@ -95,7 +95,7 @@ func (s *Server) predictionsPost(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, err)
 		return
 	}
-	JSON(w, map[string]interface{}{"prediction": p}, 201)
+	JSON(w, map[string]interface{}{"prediction": predictionDetail(p, 70)}, 201)
 }
 func (s *Server) predictionJSON(ctx context.Context, id string) (map[string]interface{}, error) {
 	var raw []byte
@@ -156,6 +156,20 @@ func predictionList(raw interface{}) []interface{} {
 	return list
 }
 
+func predictionSuitability(raw interface{}) map[string]interface{} {
+	out := map[string]interface{}{
+		"verdict":     "unknown",
+		"score":       0,
+		"explanation": "Environmental suitability was not evaluated for this prediction.",
+	}
+	if value, ok := raw.(map[string]interface{}); ok {
+		for key, entry := range value {
+			out[key] = entry
+		}
+	}
+	return out
+}
+
 func predictionDetail(raw map[string]interface{}, quality int) map[string]interface{} {
 	return map[string]interface{}{
 		"id":                raw["id"],
@@ -173,6 +187,8 @@ func predictionDetail(raw map[string]interface{}, quality int) map[string]interf
 		"createdAt":         raw["created_at"],
 		"conditionsSummary": predictionConditions(raw["conditions_summary"], quality),
 		"factors":           predictionList(raw["factors"]),
+		"suitability":       predictionSuitability(raw["suitability"]),
+		"advisories":        predictionList(raw["advisories"]),
 		"limitations":       predictionList(raw["limitations"]),
 	}
 }
