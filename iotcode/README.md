@@ -51,6 +51,25 @@ pio run --target upload
 pio device monitor
 ```
 
+### Upload troubleshooting
+
+Before uploading, run `pio device list` and confirm that the ESP32 appears as a
+serial port. On Linux it is usually `/dev/ttyUSB0` or `/dev/ttyACM0`; on
+Windows it appears as a `COM` port. If no such port appears, use a USB data
+cable, check the board's USB connection and serial driver, and make sure the
+USB device is passed through to the environment running PlatformIO (for
+example, a container or remote development session).
+
+If PlatformIO does not select the board automatically, pass its detected port:
+
+```bash
+pio run --target upload --upload-port /dev/ttyUSB0
+```
+
+Replace the example with the port reported by `pio device list` (for example,
+`COM3` on Windows). If upload stalls at `Connecting...`, hold the ESP32's
+`BOOT` button until writing starts, then release it.
+
 ## MQTT payload
 
 The sketch publishes retained JSON to `MQTT_TOPIC`, for example:
