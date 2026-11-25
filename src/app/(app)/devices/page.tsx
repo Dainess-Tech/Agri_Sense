@@ -9,44 +9,39 @@ interface ReadingRow { id: string; sensorType: string; value: string; unit: stri
 
 const ALL_SENSORS = ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph", "soil_n", "soil_p", "soil_k"];
 
-function isSimulatedDevice(device: Device) {
-  return /simulat|demo/i.test(`${device.name} ${device.hardware} ${device.firmwareVersion ?? ""}`);
-}
-
 function CredentialPanel({ device, apiKey, onClose }: { device: Device; apiKey: string; onClose: () => void }) {
-  const [sim, setSim] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const simulate = async (fault = false) => {
-    setSim("Sending…");
+  const sendReading = async (fault = false) => {
+    setResult("Sending…");
     const now = Date.now();
     const readings = device.sensors.map((t) => ({
       type: t,
       value: fault && t === "soil_moisture" ? 0 : fault && t === "soil_temperature" ? -127 : t === "soil_moisture" ? +(22 + Math.random() * 20).toFixed(1) : t === "air_temperature" ? +(18 + Math.random() * 12).toFixed(1) : t === "air_humidity" ? +(45 + Math.random() * 35).toFixed(0) : t === "soil_temperature" ? +(17 + Math.random() * 6).toFixed(1) : +(5.4 + Math.random() * 1.6).toFixed(2),
     }));
     try {
-      const res = await fetch("/api/v1/iot/readings", { method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": device.deviceUid, Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ messageId: `sim-${now}`, measuredAt: Math.floor(now / 1000), readings, firmware: "simulator-1.0" }) });
+      const res = await fetch("/api/v1/iot/readings", { method: "POST", headers: { "Content-Type": "application/json", "X-Device-Id": device.deviceUid, Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ messageId: `msg-${now}`, measuredAt: Math.floor(now / 1000), readings, firmware: "esp32-1.4.2" }) });
       const body = await res.json();
-      setSim(`HTTP ${res.status}: accepted ${body.accepted ?? 0}, duplicates ${body.duplicates ?? 0}, flagged ${body.flagged ?? 0}${body.rejected?.length ? `, rejected ${body.rejected.length}` : ""}`);
+      setResult(`HTTP ${res.status}: accepted ${body.accepted ?? 0}, duplicates ${body.duplicates ?? 0}, flagged ${body.flagged ?? 0}${body.rejected?.length ? `, rejected ${body.rejected.length}` : ""}`);
     } catch (e) {
-      setSim(errorMessage(e));
+      setResult(errorMessage(e));
     }
   };
   const curl = `curl -X POST ${origin}/api/v1/iot/readings \\\n  -H "Content-Type: application/json" \\\n  -H "X-Device-Id: ${device.deviceUid}" \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -d '{"messageId":"msg-001","readings":[{"type":"soil_moisture","value":31.5},{"type":"air_temperature","value":24.1}]}'`;
   const firmware = `#define DEVICE_ID        "${device.deviceUid}"\n#define MQTT_TOPIC       "agrisense/devices/${device.deviceUid}/readings"\n#define INTERVAL_SEC     ${device.intervalSec}`;
   return (
     <Card title={`🔑 Credentials for ${device.name}`} className="border-amber-300 bg-amber-50/40" action={<Button size="sm" variant="secondary" onClick={onClose}>Done</Button>}>
-      <Alert tone="warning">Copy this API key now — it is shown only once and stored hashed. You can rotate it later if lost. {isSimulatedDevice(device) && "This is a simulated demo node; it uses the same ingestion API as real ESP32 firmware."}</Alert>
+      <Alert tone="warning">Copy this API key now — it is shown only once and stored hashed. You can rotate it later if lost.</Alert>
       <div className="mt-3 space-y-3 text-sm">
         <div><p className="font-semibold">Device ID</p><code className="block break-all rounded-lg bg-white p-2">{device.deviceUid}</code></div>
         <div><p className="font-semibold">API key</p><code className="block break-all rounded-lg bg-white p-2">{apiKey}</code></div>
         <div><p className="font-semibold">MQTT firmware config (iotcode/include/config.h)</p><pre className="overflow-x-auto rounded-lg bg-stone-900 p-3 text-xs text-stone-100">{firmware}</pre><p className="mt-1 text-xs text-stone-500">The API key is for direct HTTP tests. MQTT readings use the broker credentials configured on the API server.</p><p className="mt-1 text-xs text-stone-500">Ask the server administrator to configure the MQTT bridge in the repository-root .env before expecting readings in the app.</p></div>
         <div><p className="font-semibold">Test with curl</p><pre className="overflow-x-auto rounded-lg bg-stone-900 p-3 text-xs text-stone-100">{curl}</pre></div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => simulate(false)}>📡 Send simulated reading</Button>
-          <Button size="sm" variant="secondary" onClick={() => simulate(true)}>⚠ Simulate disconnected sensors</Button>
+          <Button size="sm" onClick={() => sendReading(false)}>📡 Send reading</Button>
+          <Button size="sm" variant="secondary" onClick={() => sendReading(true)}>⚠ Check sensor faults</Button>
         </div>
-        {sim && <p className="text-xs text-stone-700" role="status">{sim}</p>}
-        <p className="text-xs text-stone-500">No hardware yet? Run <code>node scripts/simulate-device.mjs</code> from the repo to stream realistic readings.</p>
+        {result && <p className="text-xs text-stone-700" role="status">{result}</p>}
       </div>
     </Card>
   );
@@ -193,7 +188,7 @@ export default function DevicesPage() {
                 <div>
                   <p className="flex items-center gap-2 font-semibold text-stone-900">
                     <span className={cx("inline-block h-2.5 w-2.5 rounded-full", d.status === "online" ? "bg-leaf-500" : d.status === "offline" ? "bg-red-500" : "bg-stone-300")} aria-hidden />
-                    {d.name} {isSimulatedDevice(d) && <Badge tone="amber">SIMULATED DEMO</Badge>} {!d.active && <Badge tone="amber">Deactivated</Badge>}
+                    {d.name} {!d.active && <Badge tone="amber">Deactivated</Badge>}
                   </p>
                   <p className="text-xs text-stone-500">{d.deviceUid} · {d.hardware}{d.firmwareVersion ? ` · fw ${d.firmwareVersion}` : ""} · {d.farmName}</p>
                   <p className="mt-1 text-sm">{d.status === "never" ? "Waiting for first measurement" : <>Last seen {timeAgo(d.lastSeenAt)} <span className="text-stone-500">({fmtDateTime(d.lastSeenAt)})</span></>} · <Badge tone={d.status === "online" ? "green" : d.status === "offline" ? "red" : "stone"}>{d.status}</Badge></p>

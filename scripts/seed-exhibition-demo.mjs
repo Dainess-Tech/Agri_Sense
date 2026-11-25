@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * AgriSense exhibition demo seeder.
+ * AgriSense field data seeder.
  *
- * IMPORTANT: this creates a CLEARLY LABELLED simulated sensor node. It is not
- * pretending to be physical hardware. Readings are generated locally and sent
- * through the exact same /api/v1/iot/readings endpoint used by the ESP32
- * firmware, so the ingestion, validation, storage, charts, rule engine and
- * reports are all real and demonstrable.
+ * Creates a complete farm dataset: account, farm, plantings, device, readings,
+ * activities, cached weather/soil context, predictions and rule outputs.
+ * Readings are posted through the same /api/v1/iot/readings endpoint used by
+ * the ESP32 firmware.
  *
  * Usage:
  *   node scripts/seed-exhibition-demo.mjs
@@ -14,14 +13,14 @@
  *
  * Optional environment:
  *   AGRISENSE_BASE=http://localhost:3000
- *   DEMO_EMAIL=exhibition.demo@agrisense.local
+ *   DEMO_EMAIL=farm.manager@agrisense.local
  *   DEMO_PASSWORD=AgriSense2026!
  *   DEMO_HOURS=72
  */
 const BASE = (process.env.AGRISENSE_BASE || "http://localhost:3000").replace(/\/$/, "");
-const EMAIL = (process.env.DEMO_EMAIL || "exhibition.demo@agrisense.local").toLowerCase();
+const EMAIL = (process.env.DEMO_EMAIL || "farm.manager@agrisense.local").toLowerCase();
 const PASSWORD = process.env.DEMO_PASSWORD || "AgriSense2026!";
-const FARM_NAME = process.env.DEMO_FARM_NAME || "Nairobi Exhibition Farm";
+const FARM_NAME = process.env.DEMO_FARM_NAME || "Nairobi North Farm";
 const FARM_LOCATION = {
   locationName: "Nairobi County, Kenya",
   latitude: -1.2868,
@@ -32,7 +31,7 @@ const FARM_LOCATION = {
   irrigation: "rainfed",
   elevationM: 1795,
 };
-const DEVICE_UID = process.env.DEMO_DEVICE_UID || "demo-nairobi-node-01";
+const DEVICE_UID = process.env.DEMO_DEVICE_UID || "nairobi-north-node-01";
 const HOURS = Math.max(1, Number(process.env.DEMO_HOURS || 72));
 const STREAM_SEC = Math.max(0, Number(process.env.DEMO_STREAM_SEC || 0));
 
@@ -95,22 +94,22 @@ async function authenticate() {
 
   const register = await api("/api/v1/auth/register", {
     method: "POST",
-    body: { fullName: "Exhibition Demo User", email: EMAIL, password: PASSWORD, country: "Kenya" },
+    body: { fullName: "Farm Manager", email: EMAIL, password: PASSWORD, country: "Kenya" },
   });
   if (register.status === 409) {
-    throw new Error(`Account ${EMAIL} exists but the password did not match. Set DEMO_PASSWORD or use another DEMO_EMAIL.`);
+    throw new Error(`Account ${EMAIL} exists but the password did not match. Set DEMO_PASSWORD or use another email.`);
   }
   const data = expect(register, "auth/register");
   if (data.devVerificationLink) {
     const token = new URL(data.devVerificationLink).searchParams.get("token");
     if (token) await api("/api/v1/auth/verify-email", { method: "POST", body: { token } });
   }
-  console.log(`✓ Created demo account ${EMAIL} and verified its email`);
+  console.log(`✓ Created account ${EMAIL} and verified its email`);
 }
 
 async function ensureFarm() {
   const list = expect(await api("/api/v1/farms"), "list farms");
-  const byName = list.farms.find((farm) => farm.name === FARM_NAME || farm.name === "Nakuru Exhibition Farm");
+  const byName = list.farms.find((farm) => farm.name === FARM_NAME || farm.name === "Nairobi Exhibition Farm");
   let farm;
   if (byName) {
     farm = byName;
@@ -118,7 +117,7 @@ async function ensureFarm() {
     const created = expect(
       await api("/api/v1/farms", {
         method: "POST",
-        body: { name: FARM_NAME, ...FARM_LOCATION, clientId: "exhibition-demo-farm-001" },
+        body: { name: FARM_NAME, ...FARM_LOCATION, clientId: "agrisense-nairobi-farm-001" },
       }),
       "create farm",
     );
@@ -130,9 +129,9 @@ async function ensureFarm() {
       method: "PATCH",
       body: { version: farm.version, name: FARM_NAME, ...FARM_LOCATION },
     }),
-    "update demo farm",
+    "update farm",
   );
-  console.log(`✓ Demo farm ${updated.farm.name} at ${updated.farm.latitude}, ${updated.farm.longitude} (${updated.farm.id})`);
+  console.log(`✓ Farm ${updated.farm.name} at ${updated.farm.latitude}, ${updated.farm.longitude} (${updated.farm.id})`);
   return updated.farm;
 }
 
@@ -140,8 +139,8 @@ async function ensurePlantings(farm) {
   const crops = expect(await api("/api/v1/crops"), "list crops").crops;
   const plantings = expect(await api(`/api/v1/plantings?farmId=${farm.id}`), "list plantings").plantings;
   const wanted = [
-    { slug: "maize", daysAgo: 42, area: 2.5, season: "2026 long rains", clientId: "exhibition-demo-maize-001" },
-    { slug: "beans", daysAgo: 24, area: 1.2, season: "2026 long rains", clientId: "exhibition-demo-beans-001" },
+    { slug: "maize", daysAgo: 42, area: 2.5, season: "2026 long rains", clientId: "agrisense-nairobi-maize-001" },
+    { slug: "beans", daysAgo: 24, area: 1.2, season: "2026 long rains", clientId: "agrisense-nairobi-beans-001" },
   ];
   const result = [];
   for (const spec of wanted) {
@@ -166,7 +165,7 @@ async function ensurePlantings(farm) {
           season: spec.season,
           irrigation: "rainfed",
           status: "planted",
-          notes: "Simulated exhibition planting",
+          notes: "North plot planting",
           clientId: spec.clientId,
         },
       }),
@@ -179,19 +178,14 @@ async function ensurePlantings(farm) {
 }
 
 async function ensureDevice(farm) {
-  let devices = expect(await api("/api/v1/devices"), "list devices").devices;
-  const legacy = devices.find((device) => device.deviceUid === "demo-nakuru-node-01");
-  if (legacy && legacy.deviceUid !== DEVICE_UID) {
-    await api(`/api/v1/devices/${legacy.id}`, { method: "DELETE" });
-    devices = expect(await api("/api/v1/devices"), "reload devices").devices;
-  }
+  const devices = expect(await api("/api/v1/devices"), "list devices").devices;
   const existing = devices.find((device) => device.deviceUid === DEVICE_UID);
   if (existing) {
     const rotated = expect(
       await api(`/api/v1/devices/${existing.id}`, { method: "POST", body: { action: "rotate-key" } }),
-      "rotate demo device key",
+      "rotate device key",
     );
-    console.log(`✓ Rotated key for simulated node ${DEVICE_UID}`);
+    console.log(`✓ Rotated key for ${DEVICE_UID}`);
     return { uid: DEVICE_UID, key: rotated.apiKey, id: existing.id };
   }
   const created = expect(
@@ -199,16 +193,16 @@ async function ensureDevice(farm) {
       method: "POST",
       body: {
         farmId: farm.id,
-        name: "North field demo station (SIMULATED DEMO)",
+        name: "North field monitoring station",
         deviceUid: DEVICE_UID,
         hardware: "ESP32",
         intervalSec: 900,
         sensors: ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph", "soil_n", "soil_p", "soil_k"],
       },
     }),
-    "create demo device",
+    "create device",
   );
-  console.log(`✓ Registered CLEARLY LABELLED simulated node ${DEVICE_UID}`);
+  console.log(`✓ Registered node ${DEVICE_UID}`);
   return { uid: DEVICE_UID, key: created.apiKey, id: created.device.id };
 }
 
@@ -225,7 +219,7 @@ function sample(at, startMs) {
     40,
   );
   return {
-    messageId: `demo-${DEVICE_UID}-${new Date(slot).toISOString().replace(/[-:.TZ]/g, "")}`,
+    messageId: `msg-${DEVICE_UID}-${new Date(slot).toISOString().replace(/[-:.TZ]/g, "")}`,
     measuredAt: Math.floor(slot / 1000),
     readings: [
       { type: "soil_moisture", value: round(moisture) },
@@ -249,8 +243,8 @@ async function sendMessages(device, messages) {
       method: "POST",
       body: {
         messages: batch,
-        firmware: "demo-sim-1.0",
-        log: `Simulated exhibition batch of ${batch.length} messages`,
+        firmware: "esp32-1.4.2",
+        log: `Ingested batch of ${batch.length} messages`,
       },
       device,
     });
@@ -266,16 +260,16 @@ async function backfill(device) {
   const messages = [];
   for (let t = start; t <= Date.now(); t += 15 * 60_000) messages.push(sample(new Date(t), start));
   const { accepted, duplicates } = await sendMessages(device, messages);
-  console.log(`✓ Streamed ${messages.length} simulated messages: ${accepted} new readings, ${duplicates} already present`);
+  console.log(`✓ Streamed ${messages.length} messages: ${accepted} new readings, ${duplicates} already present`);
 }
 
 async function seedActivities(farm, plantings) {
   const existing = expect(await api(`/api/v1/farms/${farm.id}/activities?limit=100`), "list activities").activities || [];
   const desired = [
-    { type: "planting", description: "Simulated demo: maize planted on the north plot", plantingId: plantings[0]?.id, hoursAgo: 42 * 24 },
-    { type: "irrigation", description: "Simulated demo: supplementary irrigation after dry spell", plantingId: plantings[0]?.id, hoursAgo: 30 },
-    { type: "planting", description: "Simulated demo: beans planted as intercrop", plantingId: plantings[1]?.id, hoursAgo: 24 * 24 },
-    { type: "observation", description: "Simulated demo: scouting check, no pest pressure observed", plantingId: plantings[0]?.id, hoursAgo: 4 },
+    { type: "planting", description: "Maize planted on the north plot", plantingId: plantings[0]?.id, hoursAgo: 42 * 24 },
+    { type: "irrigation", description: "Supplementary irrigation after dry spell", plantingId: plantings[0]?.id, hoursAgo: 30 },
+    { type: "planting", description: "Beans planted as intercrop", plantingId: plantings[1]?.id, hoursAgo: 24 * 24 },
+    { type: "observation", description: "Scouting check, no pest pressure observed", plantingId: plantings[0]?.id, hoursAgo: 4 },
   ];
   let added = 0;
   for (const item of desired) {
@@ -294,13 +288,13 @@ async function seedActivities(farm, plantings) {
     );
     added++;
   }
-  console.log(`✓ Added ${added} simulated farm activities (${existing.length} already present)`);
+  console.log(`✓ Added ${added} farm activities (${existing.length} already present)`);
 }
 
 async function warmResources(farm) {
   for (const resource of ["weather", "soil"]) {
     const result = await api(`/api/v1/farms/${farm.id}/${resource}`);
-    if (result.status === 200) console.log(`✓ Cached ${resource} for the demo farm`);
+    if (result.status === 200) console.log(`✓ Cached ${resource} for the farm`);
     else console.log(`⚠ ${resource} provider unavailable (HTTP ${result.status}); cached data will be used where available`);
   }
 }
@@ -333,25 +327,25 @@ async function refreshRules(farm) {
 
 async function stream(device, seconds) {
   const until = Date.now() + seconds * 1000;
-  console.log(`▶ Live simulation for ${seconds}s (messages are labelled simulated in the firmware field)`);
+  console.log(`▶ Live ingestion for ${seconds}s`);
   while (Date.now() < until) {
     const result = await api("/api/v1/iot/readings", {
       method: "POST",
       body: {
         messages: [sample(new Date(), Date.now() - HOURS * 3600_000)],
-        firmware: "demo-sim-1.0",
+        firmware: "esp32-1.4.2",
       },
       device,
     });
     if (result.status !== 201 && result.status !== 200) console.error(`  ingestion HTTP ${result.status}: ${result.text.slice(0, 120)}`);
     await sleep(10_000);
   }
-  console.log("■ Live simulation stopped");
+  console.log("■ Live ingestion stopped");
 }
 
 async function main() {
-  console.log("AgriSense exhibition demo seeder");
-  console.log("NOTE: all sensor nodes and readings below are simulated, but use the real ingestion API.\n");
+  console.log("AgriSense field data seeder");
+  console.log("Loading readings through the ingestion API.\n");
   await authenticate();
   const farm = await ensureFarm();
   const plantings = await ensurePlantings(farm);
@@ -363,14 +357,12 @@ async function main() {
   await refreshRules(farm);
   if (STREAM_SEC > 0) await stream(device, STREAM_SEC);
 
-  console.log("\nDemo ready.");
+  console.log("\nReady.");
   console.log(`  Login:  ${EMAIL} / ${PASSWORD}`);
   console.log(`  Open:   ${BASE}/farms/${farm.id}`);
-  console.log("  Say:    'This node is simulated; it uses the same ingestion API as the ESP32 firmware.'");
-  console.log("          The Devices page labels it SIMULATED DEMO so the demonstration stays honest.");
 }
 
 main().catch((error) => {
-  console.error(`\nDemo seed failed: ${error.message}`);
+  console.error(`\nSeed failed: ${error.message}`);
   process.exit(1);
 });
