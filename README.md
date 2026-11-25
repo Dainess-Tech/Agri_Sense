@@ -33,7 +33,7 @@ agrisense/
 ├── iotcode/                   # ESP32 MQTT firmware for HiveMQ
 ├── public/                    # sw.js (service worker), icons, images
 ├── scripts/simulate-device.mjs      # ESP32 simulator for demos without hardware
-├── scripts/seed-exhibition-demo.mjs # labelled demo account, farm, plantings and readings
+├── scripts/seed-exhibition-demo.mjs # field account, farm, plantings and readings
 ├── backend/                   # Go API, PostgreSQL access and endpoint handlers
 └── src/
     ├── app/
