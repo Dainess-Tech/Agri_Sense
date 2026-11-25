@@ -1,6 +1,6 @@
 # 🌱 AgriSense — *A Land That Can Talk*
 
-AgriSense is an installable **Progressive Web App** for agricultural intelligence: farm & crop management, **ESP32 IoT soil/climate monitoring**, **Open-Meteo** weather and **ISRIC SoilGrids** soil integration, a transparent **rule-based crop-yield prediction engine**, risk analysis, recommendations, notifications and reports.
+AgriSense is an installable **Progressive Web App** for agricultural intelligence: farm & crop management, **ESP32 IoT soil/climate monitoring**, **Open-Meteo** weather and **ISRIC SoilGrids** soil integration, a transparent **rule-based crop-yield prediction engine**, risk analysis, recommendations, notifications, reports and an in-app **AI assistant** grounded in current farm records.
 
 > It answers three questions for a farmer: *What is happening on my farm?* (monitoring) · *What is likely to happen to my crops?* (prediction) · *What should I pay attention to?* (intelligence).
 
@@ -39,7 +39,7 @@ agrisense/
     ├── app/
     │   ├── page.tsx           # landing page
     │   ├── auth/[mode]/       # login · register · forgot · reset · verify
-    │   ├── (app)/             # protected app: dashboard, farms, predictions, monitoring,
+    │   ├── (app)/             # protected app: dashboard, assistant, farms, predictions, monitoring,
     │   │                      #   devices, weather, recommendations, notifications,
     │   │                      #   reports, settings, admin
     │   ├── manifest.ts        # web app manifest

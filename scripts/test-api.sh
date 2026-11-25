@@ -48,6 +48,18 @@ check "risks" 200 "$C" "$B"
 req GET "/api/v1/farms/$FID/recommendations"
 check "recommendations" 200 "$C" "$B"
 
+req POST /api/v1/assistant/ask '{"question":"Where do readings come from?","farmId":"'"$FID"'"}'
+check "assistant ask" 200 "$C" "$B"
+ANSWER=$(jv "$B" answer)
+if [[ "$ANSWER" == *"POST /api/v1/iot/readings"* ]]; then echo "PASS: assistant ingestion answer"; PASS=$((PASS+1));
+else echo "FAIL: assistant ingestion answer body=$ANSWER"; FAIL=$((FAIL+1)); fi
+
+req POST /api/v1/assistant/ask '{"question":"How does the AI decide?","farmId":"'"$FID"'"}'
+check "assistant rules answer" 200 "$C" "$B"
+ANSWER=$(jv "$B" answer)
+if [[ "$ANSWER" == *"rule engine"* ]]; then echo "PASS: assistant explains rules"; PASS=$((PASS+1));
+else echo "FAIL: assistant explains rules body=$ANSWER"; FAIL=$((FAIL+1)); fi
+
 # Public pages
 for p in / /auth/login /auth/register /offline /manifest.webmanifest /icons/agrisense.svg /sw.js; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$p")

@@ -52,6 +52,7 @@ func (s *Server) routes() {
 	s.Mux.Post("/api/v1/admin/{section}", s.adminPost)
 	s.Mux.Delete("/api/v1/admin/{section}", s.adminDelete)
 	s.Mux.Get("/api/v1/geo", s.geoGet)
+	s.Mux.Post("/api/v1/assistant/ask", s.assistantAsk)
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 			"dashboard":       []string{"GET /dashboard"},
 			"admin":           []string{"GET /admin/stats|users|audit|crops|varieties|settings", "PATCH /admin/users|crops|varieties|settings", "POST /admin/crops|varieties|announcements|maintenance", "DELETE /admin/crops|varieties|settings"},
 			"geo":             []string{"GET /geo?q=", "GET /geo?lat=&lng="},
+			"assistant":       []string{"POST /assistant/ask"},
 		},
 	}, 200)
 }

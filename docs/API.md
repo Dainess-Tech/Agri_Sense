@@ -111,6 +111,9 @@ validation, deduplication, and storage as this HTTP endpoint.
 ## Dashboard
 `GET /dashboard?farmId=` → totals, farm list, selected farm's plantings, predictions, active risks, activities, latest readings, devices.
 
+## Assistant
+`POST /assistant/ask` with `{ question, farmId? }` → `{ answer, intent, sources[], suggestions[] }`. The answer is composed only from data already visible in the selected farm's records and rule-engine outputs; 500-character question limit, 120 requests/hour/user.
+
 ## Admin (role `admin`)
 - `GET /admin/stats|users?q=|audit|varieties|crops` · `GET /admin/settings?key=` (raw + effective values; `key=risk_thresholds` supported).
 - `PATCH /admin/users { userId, role }` · `PATCH /admin/crops { cropId, …thresholds }` · `PATCH /admin/varieties { varietyId, name?, maturityFactor?, yieldFactor?, notes? }` · `PATCH /admin/settings { key:"risk_thresholds", value:{ …partial thresholds } }`.

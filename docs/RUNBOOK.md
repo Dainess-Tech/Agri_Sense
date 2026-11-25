@@ -106,7 +106,8 @@ Where to show it:
 2. `/monitoring` — live charts and NPK values.
 3. `/predictions` — open a prediction to see suitability, advisories, factors, data quality and limitations.
 4. Farm detail → **Risks** → **Re-evaluate now** — the rule engine refreshes risks, recommendations and notifications.
-5. `/reports` — printable report and CSV exports include the readings.
+5. `/assistant` — ask “What needs attention?”, “Should I irrigate?”, “What is the maize yield estimate?” and “Where do readings come from?”. Answers come from the current farm records and link to the underlying pages.
+6. `/reports` — printable report and CSV exports include the readings.
 
 The seeder is idempotent: running it again reuses the farm and plantings,
 rotates the API key, skips duplicate message IDs, and refreshes predictions

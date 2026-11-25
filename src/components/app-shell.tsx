@@ -10,6 +10,7 @@ import { cx, Spinner } from "./ui";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠", mobile: true },
+  { href: "/assistant", label: "AI Assistant", icon: "✨" },
   { href: "/farms", label: "Farms", icon: "🌾", mobile: true },
   { href: "/predictions", label: "Predictions", icon: "📈", mobile: true },
   { href: "/monitoring", label: "Monitoring", icon: "📡", mobile: true },
@@ -97,6 +98,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </label>
           )}
           <div className="ml-auto flex items-center gap-2">
+            <Link href="/assistant" className="inline-flex items-center gap-1.5 rounded-lg bg-leaf-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-leaf-800 sm:px-3 sm:text-sm" aria-label="Open AI Assistant">
+              <span aria-hidden>✨</span>
+              <span className="hidden sm:inline">Ask AI</span>
+            </Link>
             <InstallPrompt compact />
             <ConnectionStatus />
             <Link href="/notifications" className="relative rounded-full p-1.5 hover:bg-stone-100" aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}>
