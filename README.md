@@ -30,6 +30,7 @@ The active application uses Next.js for pages and a standalone Go service for ba
 agrisense/
 ├── docs/                      # GIT_WORKFLOW, ARCHITECTURE, API contracts
 ├── firmware/esp32/agrisense_node/   # ESP32 firmware (+ config.example.h)
+├── iotcode/                   # ESP32 MQTT firmware for HiveMQ
 ├── public/                    # sw.js (service worker), icons, images
 ├── scripts/simulate-device.mjs      # ESP32 simulator for demos without hardware
 ├── backend/                   # Go API, PostgreSQL access and endpoint handlers
@@ -47,6 +48,10 @@ agrisense/
     ├── lib/client/            # API client, IndexedDB offline queue, hooks/context
     └── proxy.ts               # route protection (Next 16 "proxy", formerly middleware)
 ```
+
+`firmware/esp32/agrisense_node/` sends readings directly to the AgriSense HTTP
+API. The separate `iotcode/` sketch publishes to HiveMQ over MQTT; it needs a
+broker consumer/bridge to forward readings into the app's HTTP ingestion API.
 
 ## Run locally (Ubuntu)
 

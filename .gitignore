@@ -12,6 +12,7 @@ dist-ssr/
 .env.*
 !.env.example
 firmware/esp32/agrisense_node/config.h
+iotcode/include/config.h
 *.log
 *debug.log*
 .DS_Store
