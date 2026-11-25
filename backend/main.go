@@ -35,6 +35,27 @@ func main() {
 	}
 
 	srv := api.NewServer(pool)
+	if brokerURL := os.Getenv("MQTT_BROKER_URL"); brokerURL != "" {
+		topic := os.Getenv("MQTT_TOPIC")
+		if topic == "" {
+			topic = "agrisense/devices/+/readings"
+		}
+		client, bridgeErr := srv.StartMQTTBridge(api.MQTTConfig{
+			BrokerURL: brokerURL,
+			Username:  os.Getenv("MQTT_USERNAME"),
+			Password:  os.Getenv("MQTT_PASSWORD"),
+			Topic:     topic,
+			ClientID:  os.Getenv("MQTT_CLIENT_ID"),
+		})
+		if client != nil {
+			defer client.Disconnect(250)
+		}
+		if bridgeErr != nil {
+			log.Printf("MQTT bridge startup failed: %v", bridgeErr)
+		}
+	} else {
+		log.Printf("MQTT bridge disabled; set MQTT_BROKER_URL to enable")
+	}
 	addr := os.Getenv("GO_API_ADDR")
 	if addr == "" {
 		addr = ":3001"

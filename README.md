@@ -18,7 +18,7 @@ The active application uses Next.js for pages and a standalone Go service for ba
 | Backend | Standalone Go HTTP API — versioned REST API at `/api/v1` (Next.js proxies API requests) |
 | Database | PostgreSQL (Go `pgx`; schema managed by Drizzle Kit) |
 | Domain logic | Go API implementation under `backend/internal/api` |
-| IoT | ESP32 (Arduino C++) → HTTPS JSON with device API keys and idempotent message IDs |
+| IoT | ESP32 (Arduino C++) → MQTT/TLS bridge or HTTPS JSON; idempotent message IDs |
 | External data | Open-Meteo (forecast + ERA5 archive + elevation), ISRIC SoilGrids v2, OSM Nominatim, OpenStreetMap embed maps |
 | Notifications | In-app centre + Web Push (VAPID, optional) |
 
@@ -50,8 +50,8 @@ agrisense/
 ```
 
 `firmware/esp32/agrisense_node/` sends readings directly to the AgriSense HTTP
-API. The separate `iotcode/` sketch publishes to HiveMQ over MQTT; it needs a
-broker consumer/bridge to forward readings into the app's HTTP ingestion API.
+API. The `iotcode/` sketch publishes to MQTT; configure the Go API's MQTT
+subscriber in `.env` to forward those readings into the same app data store.
 
 ## Run locally (Ubuntu)
 
@@ -96,8 +96,11 @@ DATABASE_URL=postgresql://user:password@127.0.0.1:5432/app_db
 
 1. Register → add a farm (search a place, use GPS, or type coordinates).
 2. Add a **maize** planting (Farm → Crops & plantings).
-3. **Devices** → register an ESP32 → copy the one-time API key.
-4. Send data: flash the firmware *or* click **“Send simulated reading”** *or* run
+3. **Devices** → register an ESP32 and select its sensors. Copy the device ID
+   and MQTT topic from the one-time credentials panel.
+4. Configure the MQTT bridge in `.env`, copy the ID/topic into the firmware,
+   then flash it. Sensor readings appear in the serial monitor and refresh in
+   the app. For a demo, click **“Send simulated reading”** or run
    `DEVICE_ID=as-xxxx DEVICE_API_KEY=ask_xxx BACKFILL_HOURS=48 node scripts/simulate-device.mjs`
 5. Dashboard / Monitoring show readings with timestamps, units and fault flags.
 6. **Predictions** → generate → see yield range, total production, harvest window, suitability verdict, advisories, risks, factors, data quality, limitations and the saved input snapshot.

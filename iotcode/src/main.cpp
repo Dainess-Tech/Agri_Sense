@@ -152,6 +152,41 @@ float readSoilPh() {
 #endif
 }
 
+struct SensorReadings {
+  float soilMoisture;
+  float airTemperature;
+  float airHumidity;
+  float soilTemperature;
+  float soilPh;
+};
+
+void logReading(const char *name, float value, const char *unit) {
+  if (isnan(value)) {
+    Serial.printf("%s: sensor unavailable or disconnected\n", name);
+    return;
+  }
+  Serial.printf("%s: %.2f %s\n", name, value, unit);
+}
+
+SensorReadings readSensors() {
+  SensorReadings readings = {
+      readSoilMoisture(),
+      dht.readTemperature(),
+      dht.readHumidity(),
+      readSoilTemperature(),
+      readSoilPh(),
+  };
+  Serial.println("Sensor readings:");
+  logReading("Soil moisture", readings.soilMoisture, "%");
+  logReading("Air temperature", readings.airTemperature, "C");
+  logReading("Air humidity", readings.airHumidity, "%RH");
+  logReading("Soil temperature", readings.soilTemperature, "C");
+#ifdef PIN_SOIL_PH
+  logReading("Soil pH", readings.soilPh, "pH");
+#endif
+  return readings;
+}
+
 void addReading(JsonArray readings, const char *type, float value) {
   JsonObject reading = readings.add<JsonObject>();
   reading["type"] = type;
@@ -162,7 +197,7 @@ void addReading(JsonArray readings, const char *type, float value) {
   }
 }
 
-bool publishReading() {
+bool publishReading(const SensorReadings &sample) {
   JsonDocument document;
   document["messageId"] =
       String(DEVICE_ID) + "-" + String(++sequence);
@@ -173,13 +208,13 @@ bool publishReading() {
   document["firmware"] = FW_VERSION;
 
   JsonArray readings = document["readings"].to<JsonArray>();
-  addReading(readings, "soil_moisture", readSoilMoisture());
-  addReading(readings, "air_temperature", dht.readTemperature());
-  addReading(readings, "air_humidity", dht.readHumidity());
-  addReading(readings, "soil_temperature", readSoilTemperature());
+  addReading(readings, "soil_moisture", sample.soilMoisture);
+  addReading(readings, "air_temperature", sample.airTemperature);
+  addReading(readings, "air_humidity", sample.airHumidity);
+  addReading(readings, "soil_temperature", sample.soilTemperature);
 
 #ifdef PIN_SOIL_PH
-  addReading(readings, "soil_ph", readSoilPh());
+  addReading(readings, "soil_ph", sample.soilPh);
 #endif
 
   char payload[768];
@@ -208,6 +243,7 @@ void setup() {
   analogReadResolution(12);
   dht.begin();
   soilTemperature.begin();
+  SensorReadings readings = readSensors();
 
   bool mqttBufferReady = mqtt.setBufferSize(MQTT_BUFFER_SIZE);
   if (!mqttBufferReady) {
@@ -216,7 +252,7 @@ void setup() {
 
   if (connectWiFi()) {
     if (mqttBufferReady && connectMqtt()) {
-      publishReading();
+      publishReading(readings);
       mqtt.loop();
     }
   } else {
