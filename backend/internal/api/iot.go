@@ -1,11 +1,17 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
@@ -30,6 +36,27 @@ func validateSensor(t string, v float64) (unit, quality, note string, ok bool) {
 	}
 	return units[t], "valid", "", true
 }
+
+type iotReading struct {
+	Type  string   `json:"type"`
+	Value *float64 `json:"value"`
+}
+
+type iotMessage struct {
+	MessageID  string       `json:"messageId"`
+	MeasuredAt interface{}  `json:"measuredAt"`
+	Readings   []iotReading `json:"readings"`
+}
+
+type iotPayload struct {
+	Messages   []iotMessage `json:"messages"`
+	MessageID  string       `json:"messageId"`
+	MeasuredAt interface{}  `json:"measuredAt"`
+	Readings   []iotReading `json:"readings"`
+	Firmware   string       `json:"firmware"`
+	Log        string       `json:"log"`
+}
+
 func (s *Server) iotPost(w http.ResponseWriter, r *http.Request) {
 	ip := r.Header.Get("X-Forwarded-For")
 	if ip == "" {
@@ -47,7 +74,8 @@ func (s *Server) iotPost(w http.ResponseWriter, r *http.Request) {
 	}
 	var did, farm, hash string
 	var active bool
-	err := s.DB.QueryRow(r.Context(), `select id::text,farm_id::text,api_key_hash,active from iot_devices where device_uid=$1`, uid).Scan(&did, &farm, &hash, &active)
+	var interval int
+	err := s.DB.QueryRow(r.Context(), `select id::text,farm_id::text,api_key_hash,active,interval_sec from iot_devices where device_uid=$1`, uid).Scan(&did, &farm, &hash, &active, &interval)
 	if err != nil {
 		Error(w, r, unauthorized("Invalid device credentials"))
 		return
@@ -66,103 +94,131 @@ func (s *Server) iotPost(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, forbidden("Device is deactivated"))
 		return
 	}
-	var bPayload struct {
-		Messages []struct {
-			MessageID  string      `json:"messageId"`
-			MeasuredAt interface{} `json:"measuredAt"`
-			Readings   []struct {
-				Type  string   `json:"type"`
-				Value *float64 `json:"value"`
-			} `json:"readings"`
-		} `json:"messages"`
-		MessageID  string      `json:"messageId"`
-		MeasuredAt interface{} `json:"measuredAt"`
-		Readings   []struct {
-			Type  string   `json:"type"`
-			Value *float64 `json:"value"`
-		} `json:"readings"`
-		Firmware string `json:"firmware"`
-		Log      string `json:"log"`
-	}
-	if err := decode(w, r, &bPayload); err != nil {
+	var payload iotPayload
+	if err := decode(w, r, &payload); err != nil {
 		Error(w, r, err)
 		return
 	}
-	messages := bPayload.Messages
+	if len(payload.Messages) > 200 {
+		Error(w, r, badRequest("At most 200 messages can be sent at once"))
+		return
+	}
+	result, status, err := s.ingestIoT(r.Context(), did, farm, interval, payload)
+	if err != nil {
+		Error(w, r, err)
+		return
+	}
+	JSON(w, result, status)
+}
+
+func (s *Server) ingestIoT(ctx context.Context, deviceID, farmID string, interval int, payload iotPayload) (map[string]interface{}, int, error) {
+	messages := payload.Messages
 	if len(messages) == 0 {
-		messages = append(messages, struct {
-			MessageID  string      `json:"messageId"`
-			MeasuredAt interface{} `json:"measuredAt"`
-			Readings   []struct {
-				Type  string   `json:"type"`
-				Value *float64 `json:"value"`
-			} `json:"readings"`
-		}{bPayload.MessageID, bPayload.MeasuredAt, bPayload.Readings})
+		messages = []iotMessage{{MessageID: payload.MessageID, MeasuredAt: payload.MeasuredAt, Readings: payload.Readings}}
 	}
 	now := time.Now()
 	accepted, duplicates, flagged := 0, 0, 0
 	rejected := []interface{}{}
-	for _, m := range messages {
+	for _, message := range messages {
 		at := now
-		note := ""
-		if m.MeasuredAt != nil {
-			switch v := m.MeasuredAt.(type) {
+		clockNote := ""
+		if message.MeasuredAt != nil {
+			switch value := message.MeasuredAt.(type) {
 			case string:
-				if t, e := time.Parse(time.RFC3339, v); e == nil {
-					at = t
+				if measuredAt, err := time.Parse(time.RFC3339, value); err == nil {
+					at = measuredAt
 				} else {
-					at = now
-					note = "device clock not synchronised; server time used"
+					clockNote = "device clock not synchronised; server time used"
 				}
 			case float64:
-				t := time.Unix(int64(v), 0)
-				if v > 1e12 {
-					t = time.UnixMilli(int64(v))
+				at = time.Unix(int64(value), 0)
+				if value > 1e12 {
+					at = time.UnixMilli(int64(value))
 				}
-				at = t
 			}
 		}
 		if at.Before(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)) {
 			at = now
-			note = "device clock not synchronised; server time used"
+			clockNote = "device clock not synchronised; server time used"
 		}
 		if at.After(now.Add(5 * time.Minute)) {
-			rejected = append(rejected, map[string]interface{}{"messageId": m.MessageID, "reason": "measuredAt is in the future"})
+			rejected = append(rejected, map[string]interface{}{"messageId": message.MessageID, "reason": "measuredAt is in the future"})
 			continue
 		}
-		rows := []struct{ typ, val, unit, quality, qualityNote string }{}
-		for _, r := range m.Readings {
-			if r.Value == nil {
-				rejected = append(rejected, map[string]interface{}{"messageId": m.MessageID, "type": r.Type, "reason": "Sensor read failed (null/NaN) — not stored"})
+		for _, reading := range message.Readings {
+			if reading.Value == nil {
+				rejected = append(rejected, map[string]interface{}{"messageId": message.MessageID, "type": reading.Type, "reason": "Sensor read failed (null/NaN) — not stored"})
 				continue
 			}
-			unit, quality, note2, ok := validateSensor(r.Type, *r.Value)
+			unit, quality, qualityNote, ok := validateSensor(reading.Type, *reading.Value)
 			if !ok {
-				rejected = append(rejected, map[string]interface{}{"messageId": m.MessageID, "type": r.Type, "reason": "Unknown sensor type"})
+				rejected = append(rejected, map[string]interface{}{"messageId": message.MessageID, "type": reading.Type, "reason": "Unknown sensor type"})
 				continue
 			}
-			qualityNote := strings.TrimSpace(note2 + " " + note)
+			qualityNote = strings.TrimSpace(qualityNote + " " + clockNote)
 			if quality != "valid" {
 				flagged++
 			}
-			rows = append(rows, struct{ typ, val, unit, quality, qualityNote string }{r.Type, fmtFloat(*r.Value), unit, quality, qualityNote})
-		}
-		for _, x := range rows {
-			tag, e := s.DB.Exec(r.Context(), `insert into sensor_readings(device_id,farm_id,sensor_type,value,unit,quality,quality_note,message_id,measured_at,received_at) values($1,$2,$3,$4,$5,$6,nullif($7,''),$8,$9,$10) on conflict do nothing`, did, farm, x.typ, x.val, x.unit, x.quality, x.qualityNote, m.MessageID, at, now)
-			if e == nil && tag.RowsAffected() == 1 {
+			tag, err := s.DB.Exec(ctx, `insert into sensor_readings(device_id,farm_id,sensor_type,value,unit,quality,quality_note,message_id,measured_at,received_at) values($1,$2,$3,$4,$5,$6,nullif($7,''),$8,$9,$10) on conflict do nothing`,
+				deviceID, farmID, reading.Type, fmtFloat(*reading.Value), unit, quality, qualityNote, message.MessageID, at, now)
+			if err != nil {
+				return nil, 0, err
+			}
+			if tag.RowsAffected() == 1 {
 				accepted++
 			} else {
 				duplicates++
 			}
 		}
 	}
-	_, _ = s.DB.Exec(r.Context(), `update iot_devices set last_seen_at=$1,firmware_version=coalesce(nullif($2,''),firmware_version) where id=$3`, now, bPayload.Firmware, did)
-	if bPayload.Log != "" {
-		_, _ = s.DB.Exec(r.Context(), `insert into device_logs(device_id,level,message) values($1,'info',$2)`, did, bPayload.Log)
+	if _, err := s.DB.Exec(ctx, `update iot_devices set last_seen_at=$1,firmware_version=coalesce(nullif($2,''),firmware_version) where id=$3`, now, payload.Firmware, deviceID); err != nil {
+		return nil, 0, err
 	}
-	status := 201
+	if payload.Log != "" {
+		if _, err := s.DB.Exec(ctx, `insert into device_logs(device_id,level,message) values($1,'info',$2)`, deviceID, payload.Log); err != nil {
+			log.Printf("[iot] failed to save device log for %s: %v", deviceID, err)
+		}
+	}
+	status := http.StatusCreated
 	if accepted == 0 {
-		status = 200
+		status = http.StatusOK
 	}
-	JSON(w, map[string]interface{}{"accepted": accepted, "duplicates": duplicates, "flagged": flagged, "rejected": rejected, "intervalSec": 900, "serverTime": now}, status)
+	return map[string]interface{}{"accepted": accepted, "duplicates": duplicates, "flagged": flagged, "rejected": rejected, "intervalSec": interval, "serverTime": now}, status, nil
+}
+
+func (s *Server) ingestMQTTMessage(topicFilter, topic string, body []byte) error {
+	if len(body) == 0 || len(body) > 1<<20 {
+		return badRequest("MQTT payload must be between 1 byte and 1 MiB")
+	}
+	uid, err := deviceUIDFromTopic(topic, topicFilter)
+	if err != nil {
+		return err
+	}
+	var payload iotPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return badRequest("MQTT payload must be valid JSON")
+	}
+	if len(payload.Messages) > 200 {
+		return badRequest("At most 200 messages can be sent at once")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var deviceID, farmID string
+	var active bool
+	var interval int
+	err = s.DB.QueryRow(ctx, `select id::text,farm_id::text,active,interval_sec from iot_devices where device_uid=$1`, uid).Scan(&deviceID, &farmID, &active, &interval)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notFound("MQTT message is for an unregistered device")
+		}
+		return err
+	}
+	if !active {
+		return forbidden("MQTT message is for a deactivated device")
+	}
+	if err := rateLimit("iot:"+deviceID, 120, time.Minute); err != nil {
+		return err
+	}
+	_, _, err = s.ingestIoT(ctx, deviceID, farmID, interval, payload)
+	return err
 }

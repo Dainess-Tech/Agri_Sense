@@ -5,7 +5,7 @@ import { fmtDateTime, SENSOR_LABELS, timeAgo, useApi, useApp } from "@/lib/clien
 import { Alert, Badge, Button, Card, EmptyState, Field, Input, PageHeader, Select, Spinner, cx } from "@/components/ui";
 
 interface Device { id: string; name: string; deviceUid: string; farmId: string; farmName?: string; status: string; lastSeenAt: string | null; intervalSec: number; sensors: string[]; hardware: string; firmwareVersion: string | null; active: boolean }
-interface ReadingRow { id: number; sensorType: string; value: string; unit: string; quality: string; qualityNote: string | null; measuredAt: string; receivedAt: string; messageId: string }
+interface ReadingRow { id: string; sensorType: string; value: string; unit: string; quality: string; qualityNote: string | null; measuredAt: string; receivedAt: string; messageId: string }
 
 const ALL_SENSORS = ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature", "soil_ph"];
 
@@ -28,14 +28,14 @@ function CredentialPanel({ device, apiKey, onClose }: { device: Device; apiKey: 
     }
   };
   const curl = `curl -X POST ${origin}/api/v1/iot/readings \\\n  -H "Content-Type: application/json" \\\n  -H "X-Device-Id: ${device.deviceUid}" \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -d '{"messageId":"msg-001","readings":[{"type":"soil_moisture","value":31.5},{"type":"air_temperature","value":24.1}]}'`;
-  const firmware = `#define AGRISENSE_HOST   "${origin}"\n#define DEVICE_ID        "${device.deviceUid}"\n#define DEVICE_API_KEY   "${apiKey}"\n#define INTERVAL_SEC     ${device.intervalSec}`;
+  const firmware = `#define DEVICE_ID        "${device.deviceUid}"\n#define MQTT_TOPIC       "agrisense/devices/${device.deviceUid}/readings"\n#define INTERVAL_SEC     ${device.intervalSec}`;
   return (
     <Card title={`🔑 Credentials for ${device.name}`} className="border-amber-300 bg-amber-50/40" action={<Button size="sm" variant="secondary" onClick={onClose}>Done</Button>}>
       <Alert tone="warning">Copy this API key now — it is shown only once and stored hashed. You can rotate it later if lost.</Alert>
       <div className="mt-3 space-y-3 text-sm">
         <div><p className="font-semibold">Device ID</p><code className="block break-all rounded-lg bg-white p-2">{device.deviceUid}</code></div>
         <div><p className="font-semibold">API key</p><code className="block break-all rounded-lg bg-white p-2">{apiKey}</code></div>
-        <div><p className="font-semibold">ESP32 firmware config (firmware/esp32/agrisense_node/config.h)</p><pre className="overflow-x-auto rounded-lg bg-stone-900 p-3 text-xs text-stone-100">{firmware}</pre></div>
+        <div><p className="font-semibold">MQTT firmware config (iotcode/include/config.h)</p><pre className="overflow-x-auto rounded-lg bg-stone-900 p-3 text-xs text-stone-100">{firmware}</pre><p className="mt-1 text-xs text-stone-500">The API key is for direct HTTP tests. MQTT readings use the broker credentials configured on the API server.</p><p className="mt-1 text-xs text-stone-500">Ask the server administrator to configure the MQTT bridge in the repository-root .env before expecting readings in the app.</p></div>
         <div><p className="font-semibold">Test with curl</p><pre className="overflow-x-auto rounded-lg bg-stone-900 p-3 text-xs text-stone-100">{curl}</pre></div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => simulate(false)}>📡 Send simulated reading</Button>
@@ -50,12 +50,17 @@ function CredentialPanel({ device, apiKey, onClose }: { device: Device; apiKey: 
 
 function DeviceReadings({ deviceId }: { deviceId: string }) {
   const [page, setPage] = useState(1);
-  const { data, loading } = useApi<{ readings: ReadingRow[]; total: number; limit: number }>(`/devices/${deviceId}/readings?page=${page}&limit=25`);
+  const { data, loading, reload } = useApi<{ readings: ReadingRow[]; total: number; limit: number }>(`/devices/${deviceId}/readings?page=${page}&limit=25`);
+  useEffect(() => {
+    const timer = window.setInterval(() => { void reload(); }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
   if (loading && !data) return <Spinner />;
-  if (!data?.readings.length) return <p className="text-sm text-stone-500">No readings received yet.</p>;
+  if (!data?.readings.length) return <p className="text-sm text-stone-500">No readings received yet. Checking for new readings every 10 seconds.</p>;
   const pages = Math.ceil(data.total / data.limit);
   return (
     <div className="mt-3">
+      <p className="mb-2 text-xs text-stone-500">Live refresh: every 10 seconds</p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="text-xs uppercase text-stone-500"><tr><th className="py-2">Measured (device)</th><th>Received (server)</th><th>Sensor</th><th>Value</th><th>Quality</th></tr></thead>
@@ -87,12 +92,16 @@ function DeviceReadings({ deviceId }: { deviceId: string }) {
 export default function DevicesPage() {
   const { farms, farmId } = useApp();
   const { data, loading, error, reload } = useApi<{ devices: Device[] }>("/devices");
-  const [form, setForm] = useState({ farmId: farmId ?? "", name: "", deviceUid: "", intervalSec: "900", sensors: ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature"] });
+  const [form, setForm] = useState({ farmId: farmId ?? "", name: "", deviceUid: "", hardware: "ESP32", intervalSec: "900", sensors: ["soil_moisture", "air_temperature", "air_humidity", "soil_temperature"] });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [creds, setCreds] = useState<{ device: Device; apiKey: string } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => { document.title = "Devices · AgriSense"; }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => { void reload(); }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
   const selectedFarmId = form.farmId || farmId || farms[0]?.id || "";
 
   const register = async (e: FormEvent) => {
@@ -100,7 +109,7 @@ export default function DevicesPage() {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api<{ device: Device; apiKey: string }>("/devices", { method: "POST", body: { farmId: selectedFarmId, name: form.name, deviceUid: form.deviceUid || undefined, intervalSec: Number(form.intervalSec), sensors: form.sensors } });
+      const r = await api<{ device: Device; apiKey: string }>("/devices", { method: "POST", body: { farmId: selectedFarmId, name: form.name, deviceUid: form.deviceUid || undefined, hardware: form.hardware, intervalSec: Number(form.intervalSec), sensors: form.sensors } });
       setCreds(r);
       setForm((f) => ({ ...f, name: "", deviceUid: "" }));
       void reload();
@@ -149,8 +158,9 @@ export default function DevicesPage() {
         <Card title="Register a device">
           {!farms.length ? <p className="text-sm text-stone-500">Register a farm first.</p> : (
             <form onSubmit={register} className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <Field label="Farm" htmlFor="dfarm"><Select id="dfarm" value={selectedFarmId} onChange={(e) => setForm({ ...form, farmId: e.target.value })}>{farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</Select></Field>
+                <Field label="Microcontroller" htmlFor="dhardware"><Select id="dhardware" value={form.hardware} onChange={(e) => setForm({ ...form, hardware: e.target.value })}><option value="ESP32">ESP32 DevKit (supported)</option></Select></Field>
                 <Field label="Device name" htmlFor="dname"><Input id="dname" required minLength={2} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="North field station" /></Field>
                 <Field label="Device ID (optional)" htmlFor="duid" hint="Auto-generated if empty"><Input id="duid" value={form.deviceUid} onChange={(e) => setForm({ ...form, deviceUid: e.target.value })} placeholder="esp32-north-01" /></Field>
                 <Field label="Measurement interval" htmlFor="dint"><Select id="dint" value={form.intervalSec} onChange={(e) => setForm({ ...form, intervalSec: e.target.value })}>{[[60, "1 min"], [300, "5 min"], [900, "15 min"], [1800, "30 min"], [3600, "1 hour"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select></Field>

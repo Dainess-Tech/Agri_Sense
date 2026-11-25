@@ -52,9 +52,9 @@ pio device monitor
 ```
 
 The serial monitor runs at 115200 baud. On each boot, the sketch prints Wi-Fi
-connection status and IP address, then an MQTT connection status or error code.
-It goes to deep sleep after the attempt; press the board's reset button to run
-another attempt immediately.
+connection status and IP address, each sensor reading (or a sensor fault), then
+an MQTT connection status or error code. It goes to deep sleep after the
+attempt; press the board's reset button to run another attempt immediately.
 
 ### Upload troubleshooting
 
@@ -107,3 +107,21 @@ Content-Type: application/json
 
 The bridge must preserve `messageId` and `measuredAt` for server
 deduplication and timestamps.
+
+The AgriSense Go API can act as this bridge when configured in the repository
+root `.env`:
+
+```dotenv
+MQTT_BROKER_URL=ssl://your-cluster.example:8883
+MQTT_USERNAME=your-mqtt-username
+MQTT_PASSWORD=your-mqtt-password
+MQTT_TOPIC=agrisense/devices/+/readings
+MQTT_CLIENT_ID=agrisense-api-bridge
+```
+
+Restart the API after setting these values. In the device registration
+credentials panel, copy the device-specific `DEVICE_ID` and `MQTT_TOPIC` into
+`include/config.h`; keep the broker username and password there as local
+firmware settings. The API subscribes to the wildcard topic, accepts readings
+only for registered active devices, and writes them to the same readings table
+used by the app. Do not commit broker credentials.

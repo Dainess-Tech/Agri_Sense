@@ -83,6 +83,12 @@ or `{ "messages": [ …up to 200… ] }`. Sensor types/units: `soil_moisture` %V
 `measuredAt`: epoch seconds/ms or ISO; missing/unsynced (<2020) → server time (noted); >5 min in future → rejected.
 Response 201/200: `{ accepted, duplicates, flagged, rejected:[{messageId,type,reason}], intervalSec, serverTime }`. 401 bad credentials · 403 deactivated · 429 >120 req/min.
 
+The Go API can also subscribe to MQTT when `MQTT_BROKER_URL`,
+`MQTT_USERNAME`, and `MQTT_PASSWORD` are configured. Its default topic filter
+is `agrisense/devices/+/readings`; messages are accepted only when the topic's
+device ID belongs to an active registered device. MQTT uses the same reading
+validation, deduplication, and storage as this HTTP endpoint.
+
 ## Predictions
 | GET | `/predictions?farmId=` | history |
 |---|---|---|

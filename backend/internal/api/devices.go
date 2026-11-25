@@ -17,6 +17,18 @@ func deviceStatus(last *time.Time, interval int) string {
 	}
 	return "offline"
 }
+func validDeviceUID(uid string) bool {
+	if uid == "" || len(uid) > 64 {
+		return false
+	}
+	for _, c := range uid {
+		if !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') &&
+			!(c >= '0' && c <= '9') && c != '-' && c != '_' && c != '.' {
+			return false
+		}
+	}
+	return true
+}
 func (s *Server) devicesGet(w http.ResponseWriter, r *http.Request) {
 	u, e := requireAuth(r)
 	if e != nil {
@@ -91,6 +103,10 @@ func (s *Server) devicesPost(w http.ResponseWriter, r *http.Request) {
 	if b.Hardware == "" {
 		b.Hardware = "ESP32"
 	}
+	if b.Hardware != "ESP32" {
+		Error(w, r, validation("Unsupported microcontroller. Select an available device.", nil))
+		return
+	}
 	if b.Interval == 0 {
 		b.Interval = 900
 	}
@@ -99,6 +115,11 @@ func (s *Server) devicesPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.DeviceUID == "" {
 		b.DeviceUID = "as-" + strings.ToLower(randomToken()[:8])
+	}
+	b.DeviceUID = strings.TrimSpace(b.DeviceUID)
+	if !validDeviceUID(b.DeviceUID) {
+		Error(w, r, validation("Device ID may contain only letters, numbers, dots, underscores, and hyphens (up to 64 characters).", nil))
+		return
 	}
 	key := "ask_" + randomToken()
 	hash := sha(key)
@@ -250,6 +271,11 @@ func (s *Server) deviceReadings(w http.ResponseWriter, r *http.Request) {
 		JSON(w, map[string]interface{}{"sensorType": series, "hours": hours, "series": out}, 200)
 		return
 	}
+	var total int
+	if err := s.DB.QueryRow(r.Context(), `select count(*) from sensor_readings where device_id=$1`, d["id"]).Scan(&total); err != nil {
+		Error(w, r, err)
+		return
+	}
 	rows, err := s.DB.Query(r.Context(), `select id::text,sensor_type,value::text,unit,quality::text,quality_note,message_id,measured_at,received_at from sensor_readings where device_id=$1 order by measured_at desc limit $2 offset $3`, d["id"], limit, offset)
 	if err != nil {
 		Error(w, r, err)
@@ -264,5 +290,5 @@ func (s *Server) deviceReadings(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&id, &typ, &val, &unit, &quality, &note, &msg, &measured, &received)
 		out = append(out, map[string]interface{}{"id": id, "sensorType": typ, "value": val, "unit": unit, "quality": quality, "qualityNote": note, "messageId": msg, "measuredAt": measured, "receivedAt": received})
 	}
-	JSON(w, map[string]interface{}{"readings": out, "page": page, "limit": limit}, 200)
+	JSON(w, map[string]interface{}{"readings": out, "page": page, "limit": limit, "total": total}, 200)
 }
